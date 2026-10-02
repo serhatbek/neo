@@ -155,6 +155,12 @@ button { font: inherit; cursor: pointer; }
 @font-face { font-family: 'Libre Bodoni'; src: url('fonts/libre-bodoni-latin-400-italic.otf') format('opentype'); font-weight: 400; font-style: italic; }
 @font-face { font-family: 'Libre Bodoni'; src: url('fonts/libre-bodoni-latin-700-normal.otf') format('opentype'); font-weight: 700; }
 @font-face { font-family: 'TeX Gyre Chorus'; src: url('fonts/texgyrechorus-latin-400-normal.otf') format('opentype'); font-weight: 400; }
+/* iA Writer Quattro (iA's own webfonts, unmodified: the license reserves the
+   name "iA Writer" for the originals) */
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Regular.woff2') format('woff2'); font-weight: 400; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Italic.woff2') format('woff2'); font-weight: 400; font-style: italic; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-Bold.woff2') format('woff2'); font-weight: 700; }
+@font-face { font-family: 'iA Writer Quattro'; src: url('fonts/iAWriterQuattroS-BoldItalic.woff2') format('woff2'); font-weight: 700; font-style: italic; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-400-normal.ttf') format('truetype'); font-weight: 400; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-400-italic.ttf') format('truetype'); font-weight: 400; font-style: italic; }
 @font-face { font-family: 'Jost'; src: url('fonts/jost-latin-700-normal.ttf') format('truetype'); font-weight: 700; }
@@ -682,6 +688,9 @@ body.focus-mode:not(.no-dropcap) .chapter-body.focus-cap:not(.cap-off):not(.no-c
    The italic is real markup, laid in when the paragraph is made, so ⌘I
    takes it off any word the writer wants roman. */
 .chapter-body p.poetry { margin: 0 2.5em; text-indent: 0; }
+/* Flush paragraphs (⇧Enter): prose with no first-line indent — a report,
+   a list, an email inside the story */
+.chapter-body p.flush { text-indent: 0 !important; }
 /* a poetry paragraph is one italic; emphasis inside it stands upright, as
    typesetters set it (and as every export does, see paraRuns in app.js) */
 .chapter-body i i { font-style: normal; }
@@ -725,6 +734,11 @@ body.bright .spell-menu button { color: #eee; }
   margin: 1.6em 0; user-select: none;
 }
 .chapter-body p.scene-break + p { text-indent: 0; }
+/* …except a line of dialogue, there and at a story's opening: it keeps its
+   indent, in line with the speech that follows (marked in app.js). Pages
+   that aren't stories (no-cap) set their lines their own way. */
+.chapter-body.opens-dialogue:not(.no-cap) p:not(.poetry):not(p:not(.poetry) ~ p):not([style*="text-align"]),
+.chapter-body:not(.no-cap) p.scene-break + p[data-speech]:not([style*="text-align"]) { text-indent: 2em; }
 /* centered/right paragraphs drop the first-line indent; justified keep it */
 .chapter-body p[style*="text-align"]:not([style*="justify"]) { text-indent: 0; }
 /* Invisible anchors marking where a darling was cut from */
@@ -792,6 +806,9 @@ body.night .chapter-body.blank::before { color: #5f5b52; }
   min-height: 50vh;
 }
 #aux-editor:empty::before { content: var(--ph-write-freely, 'Write freely…'); color: #b9b4a8; font-style: italic; }
+/* vim keys: while moving, the caret becomes a gold block, as in vim, so a
+   writer can see at a glance whether a letter will move or type */
+body.vim-nav .chapter-body, body.vim-nav #aux-editor { caret-color: var(--accent); caret-shape: block; }
 
 /* --- Structured outline tab --- */
 .ol-line {
@@ -1457,3 +1474,32 @@ body.light.bright .nav-gap .ng-plus { color: #5f5b53; border-color: #8f897e; }
 body.light.bright .pop-menu button:disabled { color: #77726a; }
 body.light.bright .show-scrollbar::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.3); }
 body.light.bright .show-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.45); }
+
+
+/* ===== Greek typography =====
+   Greek glyph-safe fonts for titles, authors and drop caps.
+   The original NEO display fonts are Latin-only subsets. */
+html[lang^="el"] {
+  --dropcap-font: Georgia, "Times New Roman", serif;
+}
+
+/* Cover author */
+html[lang^="el"] .book .b-author {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Sans / condensed-style covers */
+html[lang^="el"] .book.cv-stack .b-title,
+html[lang^="el"] .book.cv-bebas .b-title,
+html[lang^="el"] .book.cv-band .b-title,
+html[lang^="el"] .book.cv-oswald .b-title {
+  font-family: "Helvetica Neue", Arial, sans-serif;
+}
+
+/* Serif / literary-style covers */
+html[lang^="el"] .book.cv-black .b-title,
+html[lang^="el"] .book.cv-fat .b-title,
+html[lang^="el"] .book.cv-fat .b-line.b-ital,
+html[lang^="el"] .book.cv-cinzel .b-title {
+  font-family: Georgia, "Times New Roman", serif;
+}
