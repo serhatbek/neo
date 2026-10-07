@@ -15,31 +15,46 @@ const {
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
-const { Buffer } = require('buffer');
+const { Buffer } = require("buffer");
 
 // Every disk request from the page passes through here: a write the system
 // refuses (see reportBlockedWrite) is explained to the writer, then the error
 // goes back to the page as before.
 {
   const handle = ipcMain.handle.bind(ipcMain);
-  ipcMain.handle = (channel, fn) => handle(channel, (...args) => {
-    // a handler's answer keeps its own timing: sync stays sync
-    let out;
-    // (and any failure lands in the error log, named by its channel, for
-    // whatever bug report follows)
-    try { out = fn(...args); } catch (err) { reportBlockedWrite(err); logError('ipc ' + channel, err); throw err; }
-    if (out && typeof out.then === 'function') out.catch((err) => { reportBlockedWrite(err); logError('ipc ' + channel, err); });
-    return out;
-  });
+  ipcMain.handle = (channel, fn) =>
+    handle(channel, (...args) => {
+      // a handler's answer keeps its own timing: sync stays sync
+      let out;
+      // (and any failure lands in the error log, named by its channel, for
+      // whatever bug report follows)
+      try {
+        out = fn(...args);
+      } catch (err) {
+        reportBlockedWrite(err);
+        logError("ipc " + channel, err);
+        throw err;
+      }
+      if (out && typeof out.then === "function")
+        out.catch((err) => {
+          reportBlockedWrite(err);
+          logError("ipc " + channel, err);
+        });
+      return out;
+    });
 }
 
 // macOS Chromium's "smart delete" also removes whitespace around a deleted
 // selection, and that pass can duplicate characters. Deletes stay literal.
-app.commandLine.appendSwitch('blink-settings', 'smartInsertDeleteEnabled=false');
+app.commandLine.appendSwitch(
+  "blink-settings",
+  "smartInsertDeleteEnabled=false",
+);
 // Linux: Chromium hears the system's voices (espeak, Piper, RHVoice…) only
 // through speech-dispatcher, and only when asked to. Without it Read Aloud
 // finds no voice at all (#287).
-if (process.platform === 'linux') app.commandLine.appendSwitch('enable-speech-dispatcher');
+if (process.platform === "linux")
+  app.commandLine.appendSwitch("enable-speech-dispatcher");
 
 // ---------------------------------------------------------------------------
 // Library location: a folder of plain files the user can inspect, sync, back up.
@@ -249,68 +264,98 @@ function folderWritable(dir) {
     return true;
   } catch (err) {
     lastFolderError = err;
-    logError('library folder not writable: ' + dir, err);
+    logError("library folder not writable: " + dir, err);
     return false;
   }
 }
-const isBlockedWrite = (err) => !!err && ['EPERM', 'EACCES', 'EROFS'].includes(err.code);
+const isBlockedWrite = (err) =>
+  !!err && ["EPERM", "EACCES", "EROFS"].includes(err.code);
 // a folder that isn't there to write in (not a refusal): a OneDrive folder
 // on a computer where OneDrive isn't set up, a drive that's gone
-const isMissingFolder = (err) => !!err && ['ENOENT', 'ENOTDIR'].includes(err.code);
+const isMissingFolder = (err) =>
+  !!err && ["ENOENT", "ENOTDIR"].includes(err.code);
 function blockedDetail(dir, err) {
-  return t('Your books can\'t be saved in:\n{dir}', { dir }) + '\n\n' + (isMissingFolder(err)
-    ? t('The folder isn\'t there, or can\'t be reached. A OneDrive folder on a computer where OneDrive isn\'t set up does this. Choose another folder to keep your library in.')
-    : process.platform === 'win32'
-      ? t('This is usually Windows Security\'s Controlled folder access (Virus & threat protection → Ransomware protection). Allow NEO there, or keep your library in another folder.')
-      : t('Check that the folder exists and that NEO may write to it, or keep your library in another folder.'));
+  return (
+    t("Your books can't be saved in:\n{dir}", { dir }) +
+    "\n\n" +
+    (isMissingFolder(err)
+      ? t(
+          "The folder isn't there, or can't be reached. A OneDrive folder on a computer where OneDrive isn't set up does this. Choose another folder to keep your library in.",
+        )
+      : process.platform === "win32"
+        ? t(
+            "This is usually Windows Security's Controlled folder access (Virus & threat protection → Ransomware protection). Allow NEO there, or keep your library in another folder.",
+          )
+        : t(
+            "Check that the folder exists and that NEO may write to it, or keep your library in another folder.",
+          ))
+  );
 }
 
 // Where a first library goes when Documents itself can't hold one. Beside
 // Documents, not nowhere: the writer is never left at "Start writing" with
 // no way on.
 function fallbackLibraryDir() {
-  const home = app.getPath('home');
+  const home = app.getPath("home");
   const spots = [];
   try {
-    const docs = path.join(home, 'Documents');
-    if (fs.statSync(docs).isDirectory()) spots.push(path.join(docs, 'NEO Library'));
-  } catch { /* no plain Documents folder here */ }
-  spots.push(path.join(home, 'NEO Library'));
-  return spots.find((dir) => dir !== LIBRARY_DIR && folderWritable(dir)) || null;
+    const docs = path.join(home, "Documents");
+    if (fs.statSync(docs).isDirectory())
+      spots.push(path.join(docs, "NEO Library"));
+  } catch {
+    /* no plain Documents folder here */
+  }
+  spots.push(path.join(home, "NEO Library"));
+  return (
+    spots.find((dir) => dir !== LIBRARY_DIR && folderWritable(dir)) || null
+  );
 }
 function useLibraryDir(dir) {
   LIBRARY_DIR = dir;
-  LIBRARY_FILE = path.join(LIBRARY_DIR, 'library.json');
+  LIBRARY_FILE = path.join(LIBRARY_DIR, "library.json");
   // remembered, so a OneDrive that comes back later doesn't swap libraries
   const settings = readSettings();
   settings.libraryDir = LIBRARY_DIR;
-  try { writeSettings(settings); } catch (err) { logError('settings', err); }
+  try {
+    writeSettings(settings);
+  } catch (err) {
+    logError("settings", err);
+  }
 }
 // The writer's own library folder, missing at launch: a drive not plugged
 // in, a NAS or cloud folder not mounted yet. Never swapped quietly for the
 // default (new books would land there and seem lost when the drive came
 // back). Asked once: Try Again once it's there, Choose Folder…, or Continue
 // with the default folder for this session only; the choice stays saved.
-function isDir(dir) { try { return fs.statSync(dir).isDirectory(); } catch { return false; } }
+function isDir(dir) {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
 function awaitChosenLibrary(chosen) {
-  const fallback = path.join(app.getPath('documents'), 'NEO Library');
+  const fallback = path.join(app.getPath("documents"), "NEO Library");
   while (!isDir(chosen)) {
     const r = dialog.showMessageBoxSync({
-      type: 'warning',
-      message: t('NEO can\'t save in your library folder'),
-      detail: blockedDetail(chosen, { code: 'ENOENT' }),
-      buttons: [t('Try Again'), t('Choose Folder…'), t('Continue')],
+      type: "warning",
+      message: t("NEO can't save in your library folder"),
+      detail: blockedDetail(chosen, { code: "ENOENT" }),
+      buttons: [t("Try Again"), t("Choose Folder…"), t("Continue")],
       defaultId: 0,
-      cancelId: 2
+      cancelId: 2,
     });
     if (r === 2) return fallback;
     if (r === 1) {
       const picked = dialog.showOpenDialogSync({
-        title: t('Choose a folder for your NEO library'),
+        title: t("Choose a folder for your NEO library"),
         defaultPath: os.homedir(),
-        properties: ['openDirectory', 'createDirectory']
+        properties: ["openDirectory", "createDirectory"],
       });
-      if (picked && picked[0]) { useLibraryDir(picked[0]); return picked[0]; }
+      if (picked && picked[0]) {
+        useLibraryDir(picked[0]);
+        return picked[0];
+      }
     }
   }
   return chosen;
@@ -321,12 +366,17 @@ function announceLibraryFallback() {
   if (!libraryFallback) return;
   const { to } = libraryFallback;
   libraryFallback = null;
-  dialog.showMessageBox({
-    type: 'info',
-    message: t('NEO is keeping your books in another folder'),
-    detail: t('Your Documents folder can\'t be written to, so your books will live in:\n{dir}\n\nFile → Library Folder… changes it.', { dir: to }),
-    buttons: [t('OK')]
-  }).catch(() => {});
+  dialog
+    .showMessageBox({
+      type: "info",
+      message: t("NEO is keeping your books in another folder"),
+      detail: t(
+        "Your Documents folder can't be written to, so your books will live in:\n{dir}\n\nFile → Library Folder… changes it.",
+        { dir: to },
+      ),
+      buttons: [t("OK")],
+    })
+    .catch(() => {});
 }
 // At startup, before any window: a library that can't be written is said
 // plainly, once, with a way out — not a hiccup at "Start writing"
@@ -334,11 +384,15 @@ function checkLibraryWritable() {
   // (only where it can happen: on Windows, and anywhere before a first
   // library exists; a synced library elsewhere isn't sent a test file
   // every launch)
-  if (process.platform !== 'win32' && fs.existsSync(LIBRARY_FILE)) return;
+  if (process.platform !== "win32" && fs.existsSync(LIBRARY_FILE)) return;
   // A first library that Documents can't hold goes beside it. Never when a
   // library already lives here or the writer picked this folder: their books
   // stay where they are, and the question below is theirs to answer.
-  if (!fs.existsSync(LIBRARY_FILE) && !readSettings().libraryDir && !folderWritable(LIBRARY_DIR)) {
+  if (
+    !fs.existsSync(LIBRARY_FILE) &&
+    !readSettings().libraryDir &&
+    !folderWritable(LIBRARY_DIR)
+  ) {
     const from = LIBRARY_DIR;
     const spot = fallbackLibraryDir();
     if (spot) {
@@ -349,10 +403,10 @@ function checkLibraryWritable() {
   }
   while (!folderWritable(LIBRARY_DIR)) {
     const r = dialog.showMessageBoxSync({
-      type: 'warning',
-      message: t('NEO can\'t save in your library folder'),
+      type: "warning",
+      message: t("NEO can't save in your library folder"),
       detail: blockedDetail(LIBRARY_DIR, lastFolderError),
-      buttons: [t('Choose Folder…'), t('Try Again'), t('Continue')],
+      buttons: [t("Choose Folder…"), t("Try Again"), t("Continue")],
       defaultId: 0,
       cancelId: 2,
     });
@@ -381,10 +435,13 @@ function reportBlockedWrite(err) {
   const win =
     BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
   const opts = {
-    type: 'warning',
-    message: t('NEO can\'t save in your library folder'),
-    detail: blockedDetail(LIBRARY_DIR, err) + '\n\n' + t('Your words stay on the page until it can.'),
-    buttons: [t('OK')]
+    type: "warning",
+    message: t("NEO can't save in your library folder"),
+    detail:
+      blockedDetail(LIBRARY_DIR, err) +
+      "\n\n" +
+      t("Your words stay on the page until it can."),
+    buttons: [t("OK")],
   };
   (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).catch(
     () => {},
@@ -396,11 +453,20 @@ function reportBlockedWrite(err) {
 // library:read recovers it (from .tmp/.bak, else from the book folders)
 // instead of an empty seed hiding every book.
 function libraryHasHistory() {
-  if (fs.existsSync(LIBRARY_FILE + '.bak') || fs.existsSync(LIBRARY_FILE + '.tmp')) return true;
-  try { return fs.readdirSync(LIBRARY_DIR).some((d) => d.startsWith('book-')); } catch { return false; }
+  if (
+    fs.existsSync(LIBRARY_FILE + ".bak") ||
+    fs.existsSync(LIBRARY_FILE + ".tmp")
+  )
+    return true;
+  try {
+    return fs.readdirSync(LIBRARY_DIR).some((d) => d.startsWith("book-"));
+  } catch {
+    return false;
+  }
 }
 function ensureLibrary() {
-  if (!fs.existsSync(LIBRARY_DIR)) fs.mkdirSync(LIBRARY_DIR, { recursive: true });
+  if (!fs.existsSync(LIBRARY_DIR))
+    fs.mkdirSync(LIBRARY_DIR, { recursive: true });
   if (!fs.existsSync(LIBRARY_FILE) && !libraryHasHistory()) {
     const seed = {
       authorName: "",
@@ -458,14 +524,22 @@ function writeCatalog() {
       }
     }
     lines.sort((a, b) => a.localeCompare(b));
-    const text = t('NEO LIBRARY CATALOG — which folder is which book') + '\n' +
-      t('(regenerated automatically; edits here do nothing)') + '\n\n' +
-      lines.join('\n') + '\n';
-    const file = path.join(LIBRARY_DIR, '_catalog.txt');
+    const text =
+      t("NEO LIBRARY CATALOG — which folder is which book") +
+      "\n" +
+      t("(regenerated automatically; edits here do nothing)") +
+      "\n\n" +
+      lines.join("\n") +
+      "\n";
+    const file = path.join(LIBRARY_DIR, "_catalog.txt");
     // unchanged, it's left alone: a rewrite on every save is a file for
     // iCloud and Syncthing to send back and forth (and to clash over)
     let old = null;
-    try { old = fs.readFileSync(file, 'utf8'); } catch { /* none yet */ }
+    try {
+      old = fs.readFileSync(file, "utf8");
+    } catch {
+      /* none yet */
+    }
     if (old !== text) fs.writeFileSync(file, text);
   } catch (err) {
     logError("catalog", err);
@@ -484,26 +558,38 @@ function writeCatalog() {
 // and try again (up to ~0.6 s) before calling the save failed, so a passing
 // glance never reaches the writer as "NEO can't save". A folder that really
 // refuses writes still fails, and is still explained.
-const sleepSync = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const sleepSync = (ms) =>
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 function renameIntoPlace(from, to) {
   for (let wait = 5; ; wait *= 2) {
-    try { return fs.renameSync(from, to); } catch (err) {
-      if (process.platform !== 'win32' || wait > 320 || !['EPERM', 'EACCES', 'EBUSY'].includes(err.code)) throw err;
+    try {
+      return fs.renameSync(from, to);
+    } catch (err) {
+      if (
+        process.platform !== "win32" ||
+        wait > 320 ||
+        !["EPERM", "EACCES", "EBUSY"].includes(err.code)
+      )
+        throw err;
       sleepSync(wait);
     }
   }
 }
 
 function writeFileDurable(file, data) {
-  const tmp = file + '.tmp';
+  const tmp = file + ".tmp";
   const buf = Buffer.isBuffer(data) ? data : Buffer.from(data);
-  const fd = fs.openSync(tmp, 'w');
+  const fd = fs.openSync(tmp, "w");
   try {
     // a write can take less than it was given; keep going until every byte
     // is down, and never swap in a file that's only partly written
-    for (let off = 0; off < buf.length;) {
+    for (let off = 0; off < buf.length; ) {
       const n = fs.writeSync(fd, buf, off, buf.length - off);
-      if (!(n > 0)) throw Object.assign(new Error('Short write: ' + tmp), { code: 'EIO', path: tmp });
+      if (!(n > 0))
+        throw Object.assign(new Error("Short write: " + tmp), {
+          code: "EIO",
+          path: tmp,
+        });
       off += n;
     }
     fs.fsyncSync(fd);
@@ -512,8 +598,17 @@ function writeFileDurable(file, data) {
   }
   renameIntoPlace(tmp, file);
   // the swap itself, on systems that let a folder be pushed too
-  if (process.platform !== 'win32') {
-    try { const d = fs.openSync(path.dirname(file), 'r'); try { fs.fsyncSync(d); } finally { fs.closeSync(d); } } catch { /* fine */ }
+  if (process.platform !== "win32") {
+    try {
+      const d = fs.openSync(path.dirname(file), "r");
+      try {
+        fs.fsyncSync(d);
+      } finally {
+        fs.closeSync(d);
+      }
+    } catch {
+      /* fine */
+    }
   }
 }
 
@@ -521,17 +616,33 @@ function writeFileDurable(file, data) {
 // making when it stopped, then .bak, the last version that read whole. What
 // they recover is put back as the file itself.
 function parseJSONFile(file) {
-  try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return undefined; }
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return undefined;
+  }
 }
 function readJSON(file, fallback) {
   const main = parseJSONFile(file);
   if (main !== undefined) return main;
-  if (!fs.existsSync(file) && !fs.existsSync(file + '.bak') && !fs.existsSync(file + '.tmp')) return fallback;
-  for (const spare of [file + '.tmp', file + '.bak']) {
+  if (
+    !fs.existsSync(file) &&
+    !fs.existsSync(file + ".bak") &&
+    !fs.existsSync(file + ".tmp")
+  )
+    return fallback;
+  for (const spare of [file + ".tmp", file + ".bak"]) {
     const v = parseJSONFile(spare);
     if (v === undefined) continue;
-    logError('recovered', `${file} was unreadable; restored from ${path.basename(spare)}`);
-    try { writeFileDurable(file, JSON.stringify(v, null, 2)); } catch (err) { logError('recover write', err); }
+    logError(
+      "recovered",
+      `${file} was unreadable; restored from ${path.basename(spare)}`,
+    );
+    try {
+      writeFileDurable(file, JSON.stringify(v, null, 2));
+    } catch (err) {
+      logError("recover write", err);
+    }
     return v;
   }
   return fallback;
@@ -540,7 +651,11 @@ function readJSON(file, fallback) {
 function writeJSON(file, data) {
   // the version on disk, while it reads whole, becomes the .bak
   if (parseJSONFile(file) !== undefined) {
-    try { fs.copyFileSync(file, file + '.bak'); } catch { /* the write still goes ahead */ }
+    try {
+      fs.copyFileSync(file, file + ".bak");
+    } catch {
+      /* the write still goes ahead */
+    }
   }
   writeFileDurable(file, JSON.stringify(data, null, 2));
 }
@@ -550,25 +665,44 @@ function writeJSON(file, data) {
 // title from the catalog, rather than vanishing from the shelf.
 function rebuildBookMeta(bookId) {
   const dir = bookDir(bookId);
-  const chDir = path.join(dir, 'chapters');
+  const chDir = path.join(dir, "chapters");
   if (!fs.existsSync(chDir)) return null;
-  let title = '';
+  let title = "";
   try {
-    const cat = fs.readFileSync(path.join(LIBRARY_DIR, '_catalog.txt'), 'utf8');
-    const line = cat.split('\n').find((l) => l.includes('  —  ' + bookId + '  —  '));
-    if (line) title = line.split('  —  ')[0].trim();
-  } catch { /* no catalog */ }
-  const order = fs.readdirSync(chDir).filter((f) => f.endsWith('.html')).map((f) => f.slice(0, -5)).sort();
+    const cat = fs.readFileSync(path.join(LIBRARY_DIR, "_catalog.txt"), "utf8");
+    const line = cat
+      .split("\n")
+      .find((l) => l.includes("  —  " + bookId + "  —  "));
+    if (line) title = line.split("  —  ")[0].trim();
+  } catch {
+    /* no catalog */
+  }
+  const order = fs
+    .readdirSync(chDir)
+    .filter((f) => f.endsWith(".html"))
+    .map((f) => f.slice(0, -5))
+    .sort();
   const meta = {
     id: bookId,
-    title: title || t('Untitled'),
-    subtitle: '', series: '', author: t('Anonymous'), wordGoal: 0,
-    created: new Date().toISOString(), modified: new Date().toISOString(),
+    title: title || t("Untitled"),
+    subtitle: "",
+    series: "",
+    author: t("Anonymous"),
+    wordGoal: 0,
+    created: new Date().toISOString(),
+    modified: new Date().toISOString(),
     chapterOrder: order,
-    tabNames: { notes: 'Notes', outline: 'Outline' }
+    tabNames: { notes: "Notes", outline: "Outline" },
   };
-  logError('recovered', `${bookId}/book.json was lost; rebuilt from ${order.length} chapter files`);
-  try { writeJSON(path.join(dir, 'book.json'), meta); } catch (err) { logError('recover write', err); }
+  logError(
+    "recovered",
+    `${bookId}/book.json was lost; rebuilt from ${order.length} chapter files`,
+  );
+  try {
+    writeJSON(path.join(dir, "book.json"), meta);
+  } catch (err) {
+    logError("recover write", err);
+  }
   return meta;
 }
 
@@ -585,13 +719,31 @@ ipcMain.handle("library:read", () => {
   const ids = [];
   try {
     for (const d of fs.readdirSync(LIBRARY_DIR)) {
-      if (d.startsWith('book-') && fs.existsSync(path.join(LIBRARY_DIR, d, 'chapters'))) ids.push(d);
+      if (
+        d.startsWith("book-") &&
+        fs.existsSync(path.join(LIBRARY_DIR, d, "chapters"))
+      )
+        ids.push(d);
     }
-  } catch { /* empty */ }
-  const seed = { authorName: '', penNames: [], firstRunDone: ids.length > 0, pageTheme: 'night',
-    shelves: [{ id: 'shelf-1', name: t('Works in Progress'), bookIds: ids }] };
-  logError('recovered', `library.json was lost; ${ids.length} books put back on one shelf`);
-  try { writeJSON(LIBRARY_FILE, seed); } catch (err) { logError('recover write', err); }
+  } catch {
+    /* empty */
+  }
+  const seed = {
+    authorName: "",
+    penNames: [],
+    firstRunDone: ids.length > 0,
+    pageTheme: "night",
+    shelves: [{ id: "shelf-1", name: t("Works in Progress"), bookIds: ids }],
+  };
+  logError(
+    "recovered",
+    `library.json was lost; ${ids.length} books put back on one shelf`,
+  );
+  try {
+    writeJSON(LIBRARY_FILE, seed);
+  } catch (err) {
+    logError("recover write", err);
+  }
   return seed;
 });
 
@@ -647,24 +799,44 @@ ipcMain.handle("book:create", (_e, meta) => {
 // its folder (chapters, notes, darlings, covers) written whole into a new
 // folder, then its book.json under the new id and title. A half-made copy
 // is removed; the original is only ever read.
-ipcMain.handle('book:duplicate', (_e, bookId, title) => {
+ipcMain.handle("book:duplicate", (_e, bookId, title) => {
   ensureLibrary();
   const src = bookDir(bookId);
-  const meta = readJSON(path.join(src, 'book.json'), null);
-  if (!meta) throw new Error('That book could not be read');
-  const slug = String(title || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30);
-  const id = 'book-' + (slug ? slug + '-' : '') +
-    Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+  const meta = readJSON(path.join(src, "book.json"), null);
+  if (!meta) throw new Error("That book could not be read");
+  const slug = String(title || "")
+    .normalize("NFD")
+    .replace(/\p{M}/gu, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 30);
+  const id =
+    "book-" +
+    (slug ? slug + "-" : "") +
+    Date.now().toString(36) +
+    "-" +
+    Math.random().toString(36).slice(2, 7);
   const dest = bookDir(id);
   // a chapter iCloud hasn't brought down yet would be missing from the copy
-  const waiting = (dir) => fs.readdirSync(dir, { withFileTypes: true }).some((e) => (e.isDirectory() ? waiting(path.join(dir, e.name)) : /\.icloud$/.test(e.name)));
-  if (waiting(src)) throw new Error('Some of this book is still downloading from iCloud. Try again in a moment');
+  const waiting = (dir) =>
+    fs
+      .readdirSync(dir, { withFileTypes: true })
+      .some((e) =>
+        e.isDirectory()
+          ? waiting(path.join(dir, e.name))
+          : /\.icloud$/.test(e.name),
+      );
+  if (waiting(src))
+    throw new Error(
+      "Some of this book is still downloading from iCloud. Try again in a moment",
+    );
   const copyDir = (from, to) => {
     fs.mkdirSync(to, { recursive: true });
     for (const ent of fs.readdirSync(from, { withFileTypes: true })) {
       // (a write caught halfway, a spare copy, a placeholder: not the book)
-      if (/\.(tmp|bak|icloud)$/.test(ent.name) || ent.name === 'book.json') continue;
+      if (/\.(tmp|bak|icloud)$/.test(ent.name) || ent.name === "book.json")
+        continue;
       const a = path.join(from, ent.name);
       const b = path.join(to, ent.name);
       if (ent.isDirectory()) copyDir(a, b);
@@ -674,14 +846,24 @@ ipcMain.handle('book:duplicate', (_e, bookId, title) => {
   try {
     copyDir(src, dest);
     const now = new Date().toISOString();
-    const copy = { ...meta, id, title: title || meta.title, created: now, modified: now };
+    const copy = {
+      ...meta,
+      id,
+      title: title || meta.title,
+      created: now,
+      modified: now,
+    };
     delete copy.uuid; // an ebook store sees a new book
-    writeJSON(path.join(dest, 'book.json'), copy);
+    writeJSON(path.join(dest, "book.json"), copy);
     writeCatalog();
     return copy;
   } catch (err) {
-    logError('duplicate', err);
-    try { fs.rmSync(dest, { recursive: true, force: true }); } catch { /* left for the writer */ }
+    logError("duplicate", err);
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+    } catch {
+      /* left for the writer */
+    }
     throw err;
   }
 });
@@ -691,11 +873,18 @@ ipcMain.handle("library:listBooks", () => {
   const out = [];
   try {
     for (const d of fs.readdirSync(LIBRARY_DIR)) {
-      if (!d.startsWith('book-')) continue;
-      const m = readJSON(path.join(LIBRARY_DIR, d, 'book.json'), null);
+      if (!d.startsWith("book-")) continue;
+      const m = readJSON(path.join(LIBRARY_DIR, d, "book.json"), null);
       // the folder is the book: a copied folder ("book-x copy") is its own
       // book, even though the book.json inside still names the original
-      if (m && m.id) out.push({ id: d, title: m.title || t('Untitled'), author: m.author || '', modified: m.modified || '', kind: m.kind || '' });
+      if (m && m.id)
+        out.push({
+          id: d,
+          title: m.title || t("Untitled"),
+          author: m.author || "",
+          modified: m.modified || "",
+          kind: m.kind || "",
+        });
     }
   } catch (err) {
     logError("listBooks", err);
@@ -703,9 +892,9 @@ ipcMain.handle("library:listBooks", () => {
   return out;
 });
 
-ipcMain.handle('book:readMeta', (_e, bookId) => {
+ipcMain.handle("book:readMeta", (_e, bookId) => {
   const dir = bookDir(bookId);
-  const meta = readJSON(path.join(dir, 'book.json'), null);
+  const meta = readJSON(path.join(dir, "book.json"), null);
   if (meta) {
     if (meta.id !== bookId) meta.id = bookId; // a copied folder answers to its own name
     return meta;
@@ -713,7 +902,7 @@ ipcMain.handle('book:readMeta', (_e, bookId) => {
   // iCloud (on older macOS) holds a file it hasn't downloaded as
   // ".book.json.icloud": the book is there, just not here yet. Rebuilding
   // it would put a bare book.json over the real one.
-  if (fs.existsSync(path.join(dir, '.book.json.icloud'))) return null;
+  if (fs.existsSync(path.join(dir, ".book.json.icloud"))) return null;
   return rebuildBookMeta(bookId);
 });
 
@@ -765,14 +954,19 @@ ipcMain.handle("chapter:read", (_e, bookId, chapterId) => {
 // it isn't just an older copy of these words), nothing is written: the
 // window is handed that text to keep as its own chapter first, so neither
 // version is lost to a save that happened before the next look at the disk.
-ipcMain.handle('chapter:write', (_e, bookId, chapterId, html, expected) => {
-  const dir = path.join(bookDir(bookId), 'chapters');
-  const file = path.join(dir, libName(chapterId) + '.html');
+ipcMain.handle("chapter:write", (_e, bookId, chapterId, html, expected) => {
+  const dir = path.join(bookDir(bookId), "chapters");
+  const file = path.join(dir, libName(chapterId) + ".html");
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-  if (typeof expected === 'string') {
+  if (typeof expected === "string") {
     let cur = null;
-    try { cur = fs.readFileSync(file, 'utf8'); } catch { /* not there: nothing to keep */ }
-    if (cur !== null && chapterDiverged(cur, expected, html)) return { conflict: cur };
+    try {
+      cur = fs.readFileSync(file, "utf8");
+    } catch {
+      /* not there: nothing to keep */
+    }
+    if (cur !== null && chapterDiverged(cur, expected, html))
+      return { conflict: cur };
   }
   writeFileDurable(file, html);
   return true;
@@ -783,7 +977,11 @@ function chapterDiverged(cur, expected, html) {
   if (cur === expected || cur === html) return false;
   const bag = (h) => {
     const m = new Map();
-    for (const w of String(h || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').split(/\s+/)) if (w) m.set(w, (m.get(w) || 0) + 1);
+    for (const w of String(h || "")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .split(/\s+/))
+      if (w) m.set(w, (m.get(w) || 0) + 1);
     return m;
   };
   const there = bag(cur);
@@ -793,8 +991,12 @@ function chapterDiverged(cur, expected, html) {
   return false;
 }
 
-ipcMain.handle('chapter:delete', (_e, bookId, chapterId) => {
-  const file = path.join(bookDir(bookId), 'chapters', libName(chapterId) + '.html');
+ipcMain.handle("chapter:delete", (_e, bookId, chapterId) => {
+  const file = path.join(
+    bookDir(bookId),
+    "chapters",
+    libName(chapterId) + ".html",
+  );
   if (fs.existsSync(file)) fs.unlinkSync(file);
   return true;
 });
@@ -809,8 +1011,8 @@ ipcMain.handle("aux:read", (_e, bookId, name) => {
   }
 });
 
-ipcMain.handle('aux:write', (_e, bookId, name, html) => {
-  writeFileDurable(path.join(bookDir(bookId), libName(name) + '.html'), html);
+ipcMain.handle("aux:write", (_e, bookId, name, html) => {
+  writeFileDurable(path.join(bookDir(bookId), libName(name) + ".html"), html);
   return true;
 });
 
@@ -900,7 +1102,7 @@ ipcMain.handle("cover:set", (_e, bookId, srcPath) => {
   if (!fs.existsSync(dir)) return null;
   // the new cover is copied in before the old ones go (the picked file may
   // be one of them)
-  const fname = 'cover-' + Date.now() + '.' + (ext === 'jpeg' ? 'jpg' : ext);
+  const fname = "cover-" + Date.now() + "." + (ext === "jpeg" ? "jpg" : ext);
   fs.copyFileSync(srcPath, path.join(dir, fname));
   for (const f of fs.readdirSync(dir)) {
     if (/^cover-\d+\./.test(f) && f !== fname) fs.unlinkSync(path.join(dir, f));
@@ -1056,30 +1258,67 @@ ipcMain.handle("fullscreen:escape", (e) => {
 
 // A script prints on US letter whatever the country (the industry's page),
 // with the margins laid out in the page itself
-const SCREENPLAY_PRINT = { pageSize: 'Letter', margins: { top: 0, bottom: 0, left: 0, right: 0 }, printBackground: false, preferCSSPageSize: true, generateTaggedPDF: true, generateDocumentOutline: false };
+const SCREENPLAY_PRINT = {
+  pageSize: "Letter",
+  margins: { top: 0, bottom: 0, left: 0, right: 0 },
+  printBackground: false,
+  preferCSSPageSize: true,
+  generateTaggedPDF: true,
+  generateDocumentOutline: false,
+};
 // Letter is a habit of the Americas (and the Philippines); most of the world
 // prints A4. The computer's region decides, for the PDF and the Word file
 // alike. (A script is Letter everywhere: SCREENPLAY_PRINT.)
-const LETTER_COUNTRIES = ['US', 'CA', 'MX', 'PH', 'CL', 'CO', 'VE', 'GT', 'CR', 'PA', 'DO', 'PR', 'SV', 'HN', 'NI', 'BZ'];
+const LETTER_COUNTRIES = [
+  "US",
+  "CA",
+  "MX",
+  "PH",
+  "CL",
+  "CO",
+  "VE",
+  "GT",
+  "CR",
+  "PA",
+  "DO",
+  "PR",
+  "SV",
+  "HN",
+  "NI",
+  "BZ",
+];
 function paperSize() {
-  let cc = '';
-  try { cc = app.getLocaleCountryCode() || ''; } catch { /* unknown */ }
-  return LETTER_COUNTRIES.includes(cc.toUpperCase()) ? 'Letter' : 'A4';
+  let cc = "";
+  try {
+    cc = app.getLocaleCountryCode() || "";
+  } catch {
+    /* unknown */
+  }
+  return LETTER_COUNTRIES.includes(cc.toUpperCase()) ? "Letter" : "A4";
 }
-ipcMain.on('paper:get', (e) => { e.returnValue = paperSize(); });
+ipcMain.on("paper:get", (e) => {
+  e.returnValue = paperSize();
+});
 
 // Exports open where the writer last saved one, on this computer (kept in
 // settings.json; the first time, Documents)
 function exportFolder() {
   const kept = readSettings().exportFolder;
-  try { if (kept && fs.statSync(kept).isDirectory()) return kept; } catch { /* gone: an unplugged drive */ }
-  return path.join(os.homedir(), 'Documents');
+  try {
+    if (kept && fs.statSync(kept).isDirectory()) return kept;
+  } catch {
+    /* gone: an unplugged drive */
+  }
+  return path.join(os.homedir(), "Documents");
 }
 function rememberExportFolder(file) {
   try {
     const dir = path.dirname(file);
-    if (readSettings().exportFolder !== dir) writeSettings({ ...readSettings(), exportFolder: dir });
-  } catch (err) { logError('settings', err); }
+    if (readSettings().exportFolder !== dir)
+      writeSettings({ ...readSettings(), exportFolder: dir });
+  } catch (err) {
+    logError("settings", err);
+  }
 }
 
 async function renderPDF(html, print) {
@@ -1088,18 +1327,27 @@ async function renderPDF(html, print) {
   // book in Russian or Chinese gets there far sooner, because every letter
   // becomes six to nine characters. Past that the export (and ⌘E) saved
   // nothing at all.
-  const tmp = path.join(app.getPath('temp'), `neo-print-${process.pid}-${Date.now()}.html`);
-  fs.writeFileSync(tmp, html, 'utf8');
-  const pdfWin = new BrowserWindow({ show: false, webPreferences: { sandbox: true } });
-  const options = print === 'screenplay' ? SCREENPLAY_PRINT : {
-    pageSize: paperSize(),
-    margins: { top: 1, bottom: 1, left: 1, right: 1 },
-    printBackground: false,
-    // chapter headings become the PDF's bookmarks, for jumping around in
-    // Preview or Acrobat, and the text is tagged for screen readers
-    generateTaggedPDF: true,
-    generateDocumentOutline: true,
-  };
+  const tmp = path.join(
+    app.getPath("temp"),
+    `neo-print-${process.pid}-${Date.now()}.html`,
+  );
+  fs.writeFileSync(tmp, html, "utf8");
+  const pdfWin = new BrowserWindow({
+    show: false,
+    webPreferences: { sandbox: true },
+  });
+  const options =
+    print === "screenplay"
+      ? SCREENPLAY_PRINT
+      : {
+          pageSize: paperSize(),
+          margins: { top: 1, bottom: 1, left: 1, right: 1 },
+          printBackground: false,
+          // chapter headings become the PDF's bookmarks, for jumping around in
+          // Preview or Acrobat, and the text is tagged for screen readers
+          generateTaggedPDF: true,
+          generateDocumentOutline: true,
+        };
   try {
     await pdfWin.loadFile(tmp);
     let pdf = await pdfWin.webContents.printToPDF(options);
@@ -1112,7 +1360,8 @@ async function renderPDF(html, print) {
       // page 1 is the story's first page; the ones before it aren't counted
       const p1 = /data-p1="([A-Za-z0-9_-]+)"/.exec(html);
       const skip = p1 && pages[p1[1]] ? pages[p1[1]] - 1 : 0;
-      for (const k of Object.keys(pages)) pages[k] = pages[k] - skip > 0 ? pages[k] - skip : '';
+      for (const k of Object.keys(pages))
+        pages[k] = pages[k] - skip > 0 ? pages[k] - skip : "";
       if (Object.keys(pages).length) {
         await pdfWin.webContents.executeJavaScript(`(() => {
           const pages = ${JSON.stringify(pages)};
@@ -1197,34 +1446,39 @@ async function buildZip(zipEntries) {
   });
 }
 
-ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntries, base64, print }) => {
-  const win = BrowserWindow.getFocusedWindow();
-  const { canceled, filePath } = await dialog.showSaveDialog(win, {
-    defaultPath: path.join(exportFolder(), defaultName + '.' + format),
-    filters: [{ name: format.toUpperCase(), extensions: [format] }]
-  });
-  if (canceled || !filePath) return null;
-  rememberExportFolder(filePath);
-  try {
-    if (zipEntries) {
-      fs.writeFileSync(filePath, await buildZip(zipEntries));
-    } else if (base64) {
-      // pictures (a saved cover) arrive as base64
-      fs.writeFileSync(filePath, Buffer.from(content, 'base64'));
-    } else if (format === 'pdf') {
-      fs.writeFileSync(filePath, await renderPDF(content, print));
-    } else {
-      fs.writeFileSync(filePath, content, 'utf8');
+ipcMain.handle(
+  "export:save",
+  async (_e, { format, defaultName, content, zipEntries, base64, print }) => {
+    const win = BrowserWindow.getFocusedWindow();
+    const { canceled, filePath } = await dialog.showSaveDialog(win, {
+      defaultPath: path.join(exportFolder(), defaultName + "." + format),
+      filters: [{ name: format.toUpperCase(), extensions: [format] }],
+    });
+    if (canceled || !filePath) return null;
+    rememberExportFolder(filePath);
+    try {
+      if (zipEntries) {
+        fs.writeFileSync(filePath, await buildZip(zipEntries));
+      } else if (base64) {
+        // pictures (a saved cover) arrive as base64
+        fs.writeFileSync(filePath, Buffer.from(content, "base64"));
+      } else if (format === "pdf") {
+        fs.writeFileSync(filePath, await renderPDF(content, print));
+      } else {
+        fs.writeFileSync(filePath, content, "utf8");
+      }
+    } catch (err) {
+      // Main-process export failures used to vanish: the renderer saw a bare
+      // rejection and nothing reached neo-errors.log. Log it here, and hand the
+      // renderer a sentence it can show the writer.
+      logError("export save", err);
+      throw new Error(
+        "Could not write the file (" + ((err && err.message) || err) + ")",
+      );
     }
-  } catch (err) {
-    // Main-process export failures used to vanish: the renderer saw a bare
-    // rejection and nothing reached neo-errors.log. Log it here, and hand the
-    // renderer a sentence it can show the writer.
-    logError('export save', err);
-    throw new Error('Could not write the file (' + ((err && err.message) || err) + ')');
-  }
-  return filePath;
-});
+    return filePath;
+  },
+);
 
 // ---------------------------------------------------------------------------
 // Paperback for KDP: a print-ready interior PDF and a cover template sized
@@ -1235,31 +1489,67 @@ ipcMain.handle('export:save', async (_e, { format, defaultName, content, zipEntr
 
 // KDP's trim sizes NEO offers (inches), its paper (spine thickness per page),
 // and its minimum inside margin by page count. kdp.amazon.com, Oct 2026.
-const KDP_TRIMS = { '5x8': [5, 8], '5.25x8': [5.25, 8], '5.5x8.5': [5.5, 8.5], '6x9': [6, 9] };
+const KDP_TRIMS = {
+  "5x8": [5, 8],
+  "5.25x8": [5.25, 8],
+  "5.5x8.5": [5.5, 8.5],
+  "6x9": [6, 9],
+};
 const KDP_PAPER = { white: 0.002252, cream: 0.0025, groundwood: 0.00235 };
 const KDP_MAX_PAGES = { white: 828, cream: 776, groundwood: 812 };
 function kdpGutterMin(pages) {
-  return pages <= 150 ? 0.375 : pages <= 300 ? 0.5 : pages <= 500 ? 0.625 : pages <= 700 ? 0.75 : 0.875;
+  return pages <= 150
+    ? 0.375
+    : pages <= 300
+      ? 0.5
+      : pages <= 500
+        ? 0.625
+        : pages <= 700
+          ? 0.75
+          : 0.875;
 }
 // the inside margin NEO sets: KDP's minimum plus a quarter inch, so words
 // never run into the fold
-function kdpGutter(pages) { return kdpGutterMin(pages) + 0.25; }
+function kdpGutter(pages) {
+  return kdpGutterMin(pages) + 0.25;
+}
 
 // Soft hyphens where the language allows a break, so a justified line
 // hyphenates the same on every computer (Chromium hyphenates by itself only
 // on a Mac). Never in a capitalised word (names), never fewer than three
 // letters either side, and not in a paragraph's last word.
-const HYPHEN_LANGS = { en: 'en-us', 'en-gb': 'en-gb', 'en-au': 'en-gb', fr: 'fr', es: 'es', de: 'de-1996', nl: 'nl', pl: 'pl', pt: 'pt', ro: 'ro', ru: 'ru', el: 'el-monoton', hu: 'hu', it: 'it' };
+const HYPHEN_LANGS = {
+  en: "en-us",
+  "en-gb": "en-gb",
+  "en-au": "en-gb",
+  fr: "fr",
+  es: "es",
+  de: "de-1996",
+  nl: "nl",
+  pl: "pl",
+  pt: "pt",
+  ro: "ro",
+  ru: "ru",
+  el: "el-monoton",
+  hu: "hu",
+  it: "it",
+};
 const hyphenators = {};
 function hyphenatorFor(lang) {
-  const code = String(lang || 'en').toLowerCase();
-  const key = HYPHEN_LANGS[code] || HYPHEN_LANGS[code.split('-')[0]];
+  const code = String(lang || "en").toLowerCase();
+  const key = HYPHEN_LANGS[code] || HYPHEN_LANGS[code.split("-")[0]];
   if (!key) return null;
   if (!(key in hyphenators)) {
     try {
-      const create = require('./print/hyphen/hyphen.js');
-      hyphenators[key] = create(require('./print/hyphen/patterns/' + key + '.js'), { hyphenChar: '­', minWordLength: 6 });
-    } catch (err) { logError('hyphen ' + key, err); hyphenators[key] = null; }
+      const create = require("./print/hyphen/hyphen.js");
+      hyphenators[key] = create(
+        require("./print/hyphen/patterns/" + key + ".js"),
+        { hyphenChar: "­", minWordLength: 6 },
+      );
+    } catch (err) {
+      logError("hyphen " + key, err);
+      hyphenators[key] = null;
+    }
   }
   return hyphenators[key];
 }
@@ -1269,11 +1559,14 @@ function hyphenateWord(word, hy, nouns) {
   if (!nouns && /^\p{Lu}/u.test(word)) return word;
   const h = hy(word);
   if (h === word) return word;
-  let out = '';
+  let out = "";
   let at = 0; // letters so far
   const letters = word.length;
   for (const ch of h) {
-    if (ch === '­') { if (at >= 3 && letters - at >= 3) out += ch; continue; }
+    if (ch === "­") {
+      if (at >= 3 && letters - at >= 3) out += ch;
+      continue;
+    }
     out += ch;
     at++;
   }
@@ -1282,51 +1575,106 @@ function hyphenateWord(word, hy, nouns) {
 function hyphenateHtml(html, lang) {
   const hy = hyphenatorFor(lang);
   if (!hy) return html;
-  const nouns = /^de\b/i.test(String(lang || ''));
+  const nouns = /^de\b/i.test(String(lang || ""));
   // only the paragraphs app.js marked .hy (prose), text between tags only
-  return html.replace(/(<p\b[^>]*\bclass="[^"]*\bhy\b[^"]*"[^>]*>)([\s\S]*?)(<\/p>)/g, (m, open, inner, close) => {
-    const parts = inner.split(/(<[^>]+>|&[#\w]+;)/);
-    // the last word of the paragraph keeps its hyphens out of the last line
-    let lastText = -1;
-    parts.forEach((part, i) => { if (i % 2 === 0 && /\p{L}/u.test(part)) lastText = i; });
-    return open + parts.map((part, i) => {
-      if (i % 2 === 1) return part;
-      const words = part.split(/([\p{L}\p{M}]+)/u);
-      let lastWord = -1;
-      if (i === lastText) words.forEach((w, k) => { if (k % 2 === 1) lastWord = k; });
-      return words.map((w, k) => (k % 2 === 1 && k !== lastWord && w.length >= 6 ? hyphenateWord(w, hy, nouns) : w)).join('');
-    }).join('') + close;
-  });
+  return html.replace(
+    /(<p\b[^>]*\bclass="[^"]*\bhy\b[^"]*"[^>]*>)([\s\S]*?)(<\/p>)/g,
+    (m, open, inner, close) => {
+      const parts = inner.split(/(<[^>]+>|&[#\w]+;)/);
+      // the last word of the paragraph keeps its hyphens out of the last line
+      let lastText = -1;
+      parts.forEach((part, i) => {
+        if (i % 2 === 0 && /\p{L}/u.test(part)) lastText = i;
+      });
+      return (
+        open +
+        parts
+          .map((part, i) => {
+            if (i % 2 === 1) return part;
+            const words = part.split(/([\p{L}\p{M}]+)/u);
+            let lastWord = -1;
+            if (i === lastText)
+              words.forEach((w, k) => {
+                if (k % 2 === 1) lastWord = k;
+              });
+            return words
+              .map((w, k) =>
+                k % 2 === 1 && k !== lastWord && w.length >= 6
+                  ? hyphenateWord(w, hy, nouns)
+                  : w,
+              )
+              .join("");
+          })
+          .join("") +
+        close
+      );
+    },
+  );
 }
 
 // Lays a book out in pages and prints it. The window must be drawing (an
 // offscreen one is): Paged.js steps through animation frames, and a hidden
 // window stops them, which would leave the book a page short.
 async function renderPaged(html, { width, height, plain = false }) {
-  const tmp = path.join(app.getPath('temp'), `neo-paged-${process.pid}-${Date.now()}.html`);
-  const paged = plain ? '' : fs.readFileSync(path.join(__dirname, 'print', 'paged.polyfill.js'), 'utf8').replace(/<\/script/gi, '<\\/script');
+  const tmp = path.join(
+    app.getPath("temp"),
+    `neo-paged-${process.pid}-${Date.now()}.html`,
+  );
+  const paged = plain
+    ? ""
+    : fs
+        .readFileSync(
+          path.join(__dirname, "print", "paged.polyfill.js"),
+          "utf8",
+        )
+        .replace(/<\/script/gi, "<\\/script");
   // (a page drawn as it stands, like the cover template, isn't laid out).
   // Spliced in by position, not by replace(): the library's own code holds
   // "$&"-style sequences and tags of its own.
   const at = (s, tag, last) => (last ? s.lastIndexOf(tag) : s.indexOf(tag));
-  const splice = (s, tag, add, last) => { const i = at(s, tag, last); return i < 0 ? s + add : s.slice(0, i) + add + s.slice(i); };
+  const splice = (s, tag, add, last) => {
+    const i = at(s, tag, last);
+    return i < 0 ? s + add : s.slice(0, i) + add + s.slice(i);
+  };
   let page = html;
   // (page 1 is the page that holds .pg1, the story's first: each page's
   // number is set on it outright, which Chromium follows where Paged.js's
   // own counter reset doesn't carry past that page)
   if (plain) {
-    page = splice(page, '</body>', '<script>window.__neoPages = 1;</script>', true);
+    page = splice(
+      page,
+      "</body>",
+      "<script>window.__neoPages = 1;</script>",
+      true,
+    );
   } else {
-    page = splice(page, '</body>', '<script>window.PagedPolyfill.preview().then(() => { const pp = [...document.querySelectorAll(".pagedjs_page")]; const s = pp.findIndex((p) => p.querySelector(".pg1:not([data-split-from])")); if (s >= 0) pp.forEach((p, i) => { p.style.counterReset = "page " + (i >= s ? i - s + 1 : 0); p.style.counterIncrement = "none"; }); window.__neoPages = pp.length; }, (e) => { window.__neoPagedError = String(e && e.stack || e); });</script>', true);
-    page = splice(page, '</head>', '<script>window.PagedConfig = { auto: false };</script><script>' + paged + '</script>', false);
+    page = splice(
+      page,
+      "</body>",
+      '<script>window.PagedPolyfill.preview().then(() => { const pp = [...document.querySelectorAll(".pagedjs_page")]; const s = pp.findIndex((p) => p.querySelector(".pg1:not([data-split-from])")); if (s >= 0) pp.forEach((p, i) => { p.style.counterReset = "page " + (i >= s ? i - s + 1 : 0); p.style.counterIncrement = "none"; }); window.__neoPages = pp.length; }, (e) => { window.__neoPagedError = String(e && e.stack || e); });</script>',
+      true,
+    );
+    page = splice(
+      page,
+      "</head>",
+      "<script>window.PagedConfig = { auto: false };</script><script>" +
+        paged +
+        "</script>",
+      false,
+    );
   }
-  fs.writeFileSync(tmp, page, 'utf8');
+  fs.writeFileSync(tmp, page, "utf8");
   const win = printWindow();
   win.setContentSize(Math.round(width * 96), Math.round(height * 96));
   // a step that never answers (a stuck or crashed page) ends the export, not hangs it
   const within = (ms, p) => {
     let timer;
-    const late = new Promise((_resolve, reject) => { timer = setTimeout(() => reject(new Error('Page layout stopped answering')), ms); });
+    const late = new Promise((_resolve, reject) => {
+      timer = setTimeout(
+        () => reject(new Error("Page layout stopped answering")),
+        ms,
+      );
+    });
     return Promise.race([p, late]).finally(() => clearTimeout(timer));
   };
   try {
@@ -1335,22 +1683,42 @@ async function renderPaged(html, { width, height, plain = false }) {
     let pages = 0;
     // a long novel takes Paged.js a while: up to ten minutes before giving up
     while (Date.now() - started < 10 * 60 * 1000) {
-      if (win.isDestroyed() || win.webContents.isCrashed()) throw new Error('Page layout stopped');
-      const st = await within(60000, win.webContents.executeJavaScript('[window.__neoPages || 0, window.__neoPagedError || ""]'));
-      if (st[1]) throw new Error('Page layout failed: ' + st[1].split('\n')[0]);
-      if (st[0]) { pages = st[0]; break; }
+      if (win.isDestroyed() || win.webContents.isCrashed())
+        throw new Error("Page layout stopped");
+      const st = await within(
+        60000,
+        win.webContents.executeJavaScript(
+          '[window.__neoPages || 0, window.__neoPagedError || ""]',
+        ),
+      );
+      if (st[1]) throw new Error("Page layout failed: " + st[1].split("\n")[0]);
+      if (st[0]) {
+        pages = st[0];
+        break;
+      }
       await new Promise((resolve) => setTimeout(resolve, 150));
     }
-    if (!pages) throw new Error('Page layout took too long');
+    if (!pages) throw new Error("Page layout took too long");
     // (the size given outright, not through CSS: Chromium rounds a CSS page
     // to its pixel grid, and KDP checks a cover's size to the hundredth)
-    const pdf = await within(120000, win.webContents.printToPDF({
-      pageSize: { width, height }, preferCSSPageSize: false, printBackground: true, margins: { marginType: 'none' },
-      generateTaggedPDF: false, generateDocumentOutline: false
-    }));
+    const pdf = await within(
+      120000,
+      win.webContents.printToPDF({
+        pageSize: { width, height },
+        preferCSSPageSize: false,
+        printBackground: true,
+        margins: { marginType: "none" },
+        generateTaggedPDF: false,
+        generateDocumentOutline: false,
+      }),
+    );
     return { pdf: exactPageBox(pdf, width, height), pages };
   } finally {
-    try { fs.unlinkSync(tmp); } catch { /* already gone */ }
+    try {
+      fs.unlinkSync(tmp);
+    } catch {
+      /* already gone */
+    }
   }
 }
 // Chromium rounds a printed page to the nearest hundredth of an inch; KDP
@@ -1358,16 +1726,26 @@ async function renderPaged(html, { width, height, plain = false }) {
 // written back exact, in the same number of bytes, so the PDF's index of
 // where each object starts stays true.
 function exactPageBox(pdf, widthIn, heightIn) {
-  const s = pdf.toString('latin1');
+  const s = pdf.toString("latin1");
   const fit = (value, old) => {
-    let out = value.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');
-    if (out.length > old.length) out = value.toFixed(Math.max(0, old.length - String(Math.floor(value)).length - 1));
+    let out = value.toFixed(5).replace(/0+$/, "").replace(/\.$/, "");
+    if (out.length > old.length)
+      out = value.toFixed(
+        Math.max(0, old.length - String(Math.floor(value)).length - 1),
+      );
     if (out.length > old.length) return old;
-    if (out.length < old.length) out = out.includes('.') ? out.padEnd(old.length, '0') : (out + '.').padEnd(old.length, '0');
+    if (out.length < old.length)
+      out = out.includes(".")
+        ? out.padEnd(old.length, "0")
+        : (out + ".").padEnd(old.length, "0");
     return out;
   };
-  const fixed = s.replace(/\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g, (m, w, h) => `/MediaBox [0 0 ${fit(widthIn * 72, w)} ${fit(heightIn * 72, h)}]`);
-  return Buffer.from(fixed, 'latin1');
+  const fixed = s.replace(
+    /\/MediaBox \[0 0 ([\d.]+) ([\d.]+)\]/g,
+    (m, w, h) =>
+      `/MediaBox [0 0 ${fit(widthIn * 72, w)} ${fit(heightIn * 72, h)}]`,
+  );
+  return Buffer.from(fixed, "latin1");
 }
 
 // One window does all the laying out of an export (the passes and the
@@ -1382,8 +1760,14 @@ function closePrintWindow() {
 function printWindow() {
   if (!printWin || printWin.isDestroyed()) {
     printWin = new BrowserWindow({
-      show: false, width: 600, height: 800,
-      webPreferences: { sandbox: true, offscreen: true, backgroundThrottling: false }
+      show: false,
+      width: 600,
+      height: 800,
+      webPreferences: {
+        sandbox: true,
+        offscreen: true,
+        backgroundThrottling: false,
+      },
     });
   }
   return printWin;
@@ -1398,17 +1782,26 @@ function kdpCoverHtml({ trim, paper, pages, title, author }) {
   const spine = pages * KDP_PAPER[paper];
   const W = bleed + tw + spine + tw + bleed;
   const H = bleed + th + bleed;
-  const inch = (n) => n.toFixed(4) + 'in';
-  const box = (x, y, w, h, cls, label = '') => `<div class="${cls}" style="left:${inch(x)};top:${inch(y)};width:${inch(w)};height:${inch(h)}">${label}</div>`;
-  const esc = (v) => String(v || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const fmt = (n) => n.toFixed(3).replace(/0+$/, '').replace(/\.$/, '');
+  const inch = (n) => n.toFixed(4) + "in";
+  const box = (x, y, w, h, cls, label = "") =>
+    `<div class="${cls}" style="left:${inch(x)};top:${inch(y)};width:${inch(w)};height:${inch(h)}">${label}</div>`;
+  const esc = (v) =>
+    String(v || "")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  const fmt = (n) => n.toFixed(3).replace(/0+$/, "").replace(/\.$/, "");
   const mm = (n) => (n * 25.4).toFixed(1);
   const backX = bleed;
   const spineX = bleed + tw;
   const frontX = bleed + tw + spine;
   const safe = 0.125;
   const spineText = pages >= 79;
-  const paperName = { white: t('white paper'), cream: t('cream paper'), groundwood: t('groundwood paper') }[paper];
+  const paperName = {
+    white: t("white paper"),
+    cream: t("cream paper"),
+    groundwood: t("groundwood paper"),
+  }[paper];
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>
 @page { size: ${inch(W)} ${inch(H)}; margin: 0; }
 html, body { margin: 0; padding: 0; }
@@ -1425,22 +1818,29 @@ div { position: absolute; box-sizing: border-box; }
 .info { color: #1f4f8a; }
 .vert { writing-mode: vertical-rl; display: flex; align-items: center; justify-content: center; text-align: center; color: #1f4f8a; font-size: 7pt; }
 </style></head><body>
-${box(0, 0, W, H, 'bleed')}
-${box(bleed, bleed, W - 2 * bleed, H - 2 * bleed, 'trim')}
-${box(spineX, bleed, spine, th, 'spine')}
-${box(backX + safe, bleed + safe, tw - 2 * safe, th - 2 * safe, 'safe')}
-${box(frontX + safe, bleed + safe, tw - 2 * safe, th - 2 * safe, 'safe')}
-${spine > 0.125 ? box(spineX + 0.0625, bleed + safe, spine - 0.125, th - 2 * safe, 'spinesafe') : ''}
-${box(backX, bleed, tw, th, 'panel', esc(t('BACK COVER')))}
-${box(frontX, bleed, tw, th, 'panel', esc(t('FRONT COVER')))}
-${box(backX + tw - 0.25 - 2, bleed + th - 0.25 - 1.2, 2, 1.2, 'barcode', esc(t('Barcode area (KDP adds it here)')) + '<br>2 × 1.2 in')}
-${box(frontX + safe + 0.05, bleed + safe + 0.05, tw - 2 * safe - 0.1, 1.6, 'lbl info', `<b>${esc(title)}</b>${author ? ' · ' + esc(author) : ''}<br>
-${esc(t('Full cover: {w} × {h} in ({wmm} × {hmm} mm), bleed included', { w: fmt(W), h: fmt(H), wmm: mm(W), hmm: mm(H) }))}<br>
-${esc(t('Trim: {w} × {h} in · {pages} pages · {paper}', { w: fmt(tw), h: fmt(th), pages, paper: paperName }))}<br>
-${esc(t('Spine: {s} in ({smm} mm)', { s: fmt(spine), smm: mm(spine) }))}${spineText ? '' : ' · ' + esc(t('under 79 pages: no text on the spine'))}<br>
-<span style="color:#c0392b">${esc(t('Pink: bleed, cut off. Red line: trim.'))}</span> ${esc(t('Dashed: keep text inside.'))}<br>
-${esc(t('Use this page as a guide layer and hide it before you export your cover: one PDF, at least 300 DPI.'))}</div>`)}
-${spine > 0.3 ? box(spineX, bleed, spine, th, 'vert', esc(t('SPINE'))) : ''}
+${box(0, 0, W, H, "bleed")}
+${box(bleed, bleed, W - 2 * bleed, H - 2 * bleed, "trim")}
+${box(spineX, bleed, spine, th, "spine")}
+${box(backX + safe, bleed + safe, tw - 2 * safe, th - 2 * safe, "safe")}
+${box(frontX + safe, bleed + safe, tw - 2 * safe, th - 2 * safe, "safe")}
+${spine > 0.125 ? box(spineX + 0.0625, bleed + safe, spine - 0.125, th - 2 * safe, "spinesafe") : ""}
+${box(backX, bleed, tw, th, "panel", esc(t("BACK COVER")))}
+${box(frontX, bleed, tw, th, "panel", esc(t("FRONT COVER")))}
+${box(backX + tw - 0.25 - 2, bleed + th - 0.25 - 1.2, 2, 1.2, "barcode", esc(t("Barcode area (KDP adds it here)")) + "<br>2 × 1.2 in")}
+${box(
+  frontX + safe + 0.05,
+  bleed + safe + 0.05,
+  tw - 2 * safe - 0.1,
+  1.6,
+  "lbl info",
+  `<b>${esc(title)}</b>${author ? " · " + esc(author) : ""}<br>
+${esc(t("Full cover: {w} × {h} in ({wmm} × {hmm} mm), bleed included", { w: fmt(W), h: fmt(H), wmm: mm(W), hmm: mm(H) }))}<br>
+${esc(t("Trim: {w} × {h} in · {pages} pages · {paper}", { w: fmt(tw), h: fmt(th), pages, paper: paperName }))}<br>
+${esc(t("Spine: {s} in ({smm} mm)", { s: fmt(spine), smm: mm(spine) }))}${spineText ? "" : " · " + esc(t("under 79 pages: no text on the spine"))}<br>
+<span style="color:#c0392b">${esc(t("Pink: bleed, cut off. Red line: trim."))}</span> ${esc(t("Dashed: keep text inside."))}<br>
+${esc(t("Use this page as a guide layer and hide it before you export your cover: one PDF, at least 300 DPI."))}</div>`,
+)}
+${spine > 0.3 ? box(spineX, bleed, spine, th, "vert", esc(t("SPINE"))) : ""}
 </body></html>`;
 }
 
@@ -1450,9 +1850,9 @@ ${spine > 0.3 ? box(spineX, bleed, spine, th, 'vert', esc(t('SPINE'))) : ''}
 // out again if it crossed into another of KDP's bands), evened up to end on
 // a left-hand page, then saved with its cover template beside it.
 let paperbackBusy = false;
-ipcMain.handle('print:paperback', async (_e, job) => {
+ipcMain.handle("print:paperback", async (_e, job) => {
   // one at a time: they share the print window
-  if (paperbackBusy) throw new Error('Another paperback is still being set');
+  if (paperbackBusy) throw new Error("Another paperback is still being set");
   paperbackBusy = true;
   try {
     return await makePaperback(job);
@@ -1461,8 +1861,18 @@ ipcMain.handle('print:paperback', async (_e, job) => {
     closePrintWindow();
   }
 });
-async function makePaperback({ html, trim, paper, pagesGuess, title, author, defaultName, language }) {
-  if (!KDP_TRIMS[trim] || !KDP_PAPER[paper]) throw new Error('Unknown trim size or paper');
+async function makePaperback({
+  html,
+  trim,
+  paper,
+  pagesGuess,
+  title,
+  author,
+  defaultName,
+  language,
+}) {
+  if (!KDP_TRIMS[trim] || !KDP_PAPER[paper])
+    throw new Error("Unknown trim size or paper");
   const [tw, th] = KDP_TRIMS[trim];
   const win = BrowserWindow.getFocusedWindow();
   const hyphenated = hyphenateHtml(html, language);
@@ -1474,48 +1884,64 @@ async function makePaperback({ html, trim, paper, pagesGuess, title, author, def
   let pad = false;
   let settled = false;
   for (let pass = 0; pass < 10 && !settled; pass++) {
-    const page = hyphenated.replace(/__NEO_GUTTER__/g, gutter.toFixed(3) + 'in')
-      .replace('</body>', pad ? '<div class="neo-pad"></div></body>' : '</body>');
+    const page = hyphenated
+      .replace(/__NEO_GUTTER__/g, gutter.toFixed(3) + "in")
+      .replace(
+        "</body>",
+        pad ? '<div class="neo-pad"></div></body>' : "</body>",
+      );
     result = await renderPaged(page, { width: tw, height: th });
     if (kdpGutter(result.pages) > gutter) gutter = kdpGutter(result.pages);
     // an odd count ends on a right-hand page: one blank page in (or out) evens it
     else if (result.pages % 2 === 1) pad = !pad;
     else settled = true;
   }
-  if (!settled) throw new Error('The page count would not settle');
+  if (!settled) throw new Error("The page count would not settle");
   const pages = result.pages;
   const { canceled, filePath } = await dialog.showSaveDialog(win, {
-    defaultPath: path.join(exportFolder(), defaultName + '.pdf'),
-    filters: [{ name: 'PDF', extensions: ['pdf'] }]
+    defaultPath: path.join(exportFolder(), defaultName + ".pdf"),
+    filters: [{ name: "PDF", extensions: ["pdf"] }],
   });
   if (canceled || !filePath) return null;
   rememberExportFolder(filePath);
-  const coverPath = filePath.replace(/\.pdf$/i, '') + ' - ' + t('cover template') + '.pdf';
+  const coverPath =
+    filePath.replace(/\.pdf$/i, "") + " - " + t("cover template") + ".pdf";
   try {
     fs.writeFileSync(filePath, result.pdf);
     const cover = kdpCoverHtml({ trim, paper, pages, title, author });
     const [cw, ch] = [0.25 + tw * 2 + pages * KDP_PAPER[paper], th + 0.25];
-    fs.writeFileSync(coverPath, (await renderPaged(cover, { width: cw, height: ch, plain: true })).pdf);
+    fs.writeFileSync(
+      coverPath,
+      (await renderPaged(cover, { width: cw, height: ch, plain: true })).pdf,
+    );
   } catch (err) {
-    logError('paperback save', err);
-    throw new Error('Could not write the file (' + ((err && err.message) || err) + ')');
+    logError("paperback save", err);
+    throw new Error(
+      "Could not write the file (" + ((err && err.message) || err) + ")",
+    );
   }
   return {
-    file: filePath, cover: coverPath, pages,
+    file: filePath,
+    cover: coverPath,
+    pages,
     spine: +(pages * KDP_PAPER[paper]).toFixed(3),
-    tooFew: pages < 24, tooMany: pages > KDP_MAX_PAGES[paper]
+    tooFew: pages < 24,
+    tooMany: pages > KDP_MAX_PAGES[paper],
   };
 }
 
 // Writes a timestamped snapshot to the library's Exports folder, then hands it
 // to your email — an outside-the-machine paper trail for provenance.
-ipcMain.handle('email:draft', async (_e, { to, subject, body, html, defaultName, method, print }) => {
-  const { shell } = require('electron');
-  const exportsDir = path.join(LIBRARY_DIR, 'Exports');
-  if (!fs.existsSync(exportsDir)) fs.mkdirSync(exportsDir, { recursive: true });
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-  const file = path.join(exportsDir, `${defaultName}-${stamp}.pdf`);
-  fs.writeFileSync(file, await renderPDF(html, print));
+ipcMain.handle(
+  "email:draft",
+  async (_e, { to, subject, body, html, defaultName, method, print }) => {
+    const { shell } = require("electron");
+    const exportsDir = path.join(LIBRARY_DIR, "Exports");
+    if (!fs.existsSync(exportsDir))
+      fs.mkdirSync(exportsDir, { recursive: true });
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    const file = path.join(exportsDir, `${defaultName}-${stamp}.pdf`);
+    fs.writeFileSync(file, await renderPDF(html, print));
 
     if (method === "gmail") {
       // Gmail compose in the browser can't take an attachment from outside,
@@ -1561,14 +1987,30 @@ ipcMain.handle('email:draft', async (_e, { to, subject, body, html, defaultName,
 
 // numeric references too, and &amp; last, so a literal "&lt;" in the text
 // stays "&lt;" instead of turning into "<"
-const decodeEntities = (s) => s
-  .replace(/&#x([0-9a-f]+);/gi, (m, h) => { try { return String.fromCodePoint(parseInt(h, 16)); } catch { return m; } })
-  .replace(/&#(\d+);/g, (m, d) => { try { return String.fromCodePoint(parseInt(d, 10)); } catch { return m; } })
-  .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
-  .replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+const decodeEntities = (s) =>
+  s
+    .replace(/&#x([0-9a-f]+);/gi, (m, h) => {
+      try {
+        return String.fromCodePoint(parseInt(h, 16));
+      } catch {
+        return m;
+      }
+    })
+    .replace(/&#(\d+);/g, (m, d) => {
+      try {
+        return String.fromCodePoint(parseInt(d, 10));
+      } catch {
+        return m;
+      }
+    })
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
 // a document's own * _ and \ are text, not emphasis: they travel escaped,
 // the way Markdown writes them, and the window turns them back into letters
-const escapeMarks = (s) => s.replace(/[\\*_]/g, '\\$&');
+const escapeMarks = (s) => s.replace(/[\\*_]/g, "\\$&");
 
 // Is a formatting tag (<w:b>, <w:i>) present, and is it on? Returns true,
 // false (present but switched off — Word writes <w:i w:val="0"/> to cancel
@@ -1594,11 +2036,16 @@ function docxStyleFormats(stylesXml) {
     const body = m[2];
     const basedOn = (body.match(/<w:basedOn\s+w:val="([^"]+)"/) || [])[1];
     // only the style's own run properties, not the paragraph-mark ones
-    const rpr = (body.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [''])[0];
+    const rpr = (body.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [""])[0];
     // the style's name: always English in the file ("heading 1", "Title"),
     // while its id follows Word's language ("berschrift1", "Titre1")
-    const name = (body.match(/<w:name\s+w:val="([^"]*)"/) || [])[1] || '';
-    raw[m[1]] = { basedOn, name, bold: docxFormatOn(rpr, 'w:b'), italic: docxFormatOn(rpr, 'w:i') };
+    const name = (body.match(/<w:name\s+w:val="([^"]*)"/) || [])[1] || "";
+    raw[m[1]] = {
+      basedOn,
+      name,
+      bold: docxFormatOn(rpr, "w:b"),
+      italic: docxFormatOn(rpr, "w:i"),
+    };
   }
   const resolve = (id, depth) => {
     if (out[id]) return out[id];
@@ -1626,9 +2073,10 @@ function docxParagraphToMarkdown(p, styles = {}) {
   // Any heading style (Heading1..9, Heading 1..9, or bare "Heading") starts a new chapter and
   // gives it its title — regardless of locale, the underlying style id is
   // always "Heading*".
-  const pStyle = (p.match(/<w:pStyle\s+w:val="([^"]*)"/) || [])[1] || '';
-  const sName = (styles[pStyle] && styles[pStyle].name) || '';
-  const heading = /^heading\s*\d*$/i.test(pStyle) || /^heading\s*\d*$/i.test(sName);
+  const pStyle = (p.match(/<w:pStyle\s+w:val="([^"]*)"/) || [])[1] || "";
+  const sName = (styles[pStyle] && styles[pStyle].name) || "";
+  const heading =
+    /^heading\s*\d*$/i.test(pStyle) || /^heading\s*\d*$/i.test(sName);
   // Google Docs exports each of a document's tabs under a "Title"-styled
   // line, and the book's own title page uses the same style: the first one
   // names the book, later ones start chapters (see chapterize)
@@ -1637,18 +2085,23 @@ function docxParagraphToMarkdown(p, styles = {}) {
   const pBase = styles[pStyle] || { bold: false, italic: false };
   const runs = [...p.matchAll(/<w:r[ >][\s\S]*?<\/w:r>/g)].map((rm) => {
     const r = rm[0];
-    const rpr = (r.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [''])[0];
+    const rpr = (r.match(/<w:rPr>[\s\S]*?<\/w:rPr>/) || [""])[0];
     // the run's text in order: its words, and the tabs, line breaks and
     // no-break hyphens between them (only <w:t> used to count, which ran
     // "red,⏎violets" together into "red,violets")
-    const text = [...r.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br(\s[^>]*)?\/>|<w:cr\/>|<w:noBreakHyphen\/>/g)]
+    const text = [
+      ...r.matchAll(
+        /<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>|<w:tab\/>|<w:br(\s[^>]*)?\/>|<w:cr\/>|<w:noBreakHyphen\/>/g,
+      ),
+    ]
       .map((t) => {
         if (t[1] !== undefined) return escapeMarks(decodeEntities(t[1]));
-        if (t[0].startsWith('<w:tab')) return ' ';
-        if (t[0].startsWith('<w:noBreakHyphen')) return '\u2011';
-        if (/w:type="(page|column)"/.test(t[0])) return '';
-        return '\n';
-      }).join('');
+        if (t[0].startsWith("<w:tab")) return " ";
+        if (t[0].startsWith("<w:noBreakHyphen")) return "\u2011";
+        if (/w:type="(page|column)"/.test(t[0])) return "";
+        return "\n";
+      })
+      .join("");
     const rStyle = (rpr.match(/<w:rStyle\s+w:val="([^"]*)"/) || [])[1];
     const rBase = rStyle && styles[rStyle] ? styles[rStyle] : pBase;
     const b = docxFormatOn(rpr, "w:b");
@@ -1675,55 +2128,112 @@ function docxParagraphToMarkdown(p, styles = {}) {
     const m = piece.match(/^(\s*)([\s\S]*?)(\s*)$/);
     let t = m[2];
     if (!t) return piece;
-    if (run.bold) t = '**' + t + '**';
-    if (run.italic) t = '*' + t + '*';
+    if (run.bold) t = "**" + t + "**";
+    if (run.italic) t = "*" + t + "*";
     return m[1] + t + m[3];
   };
-  const text = merged.map((run) => run.text.split('\n').map((piece) => wrap(run, piece)).join('\n'))
-    .join('').replace(/[ \t]*\n[ \t]*/g, '\n').trim();
+  const text = merged
+    .map((run) =>
+      run.text
+        .split("\n")
+        .map((piece) => wrap(run, piece))
+        .join("\n"),
+    )
+    .join("")
+    .replace(/[ \t]*\n[ \t]*/g, "\n")
+    .trim();
   return { text, pageBreak, heading, title };
 }
 
 // Headings that are only NEO's own numbering, in the languages NEO speaks
-const CHAPTER_WORDS = new RegExp('^(' + [
-  'chapter', 'prologue', 'epilogue', 'part',                       // en
-  'chapitre', 'épilogue', 'partie',                                // fr
-  'capítulo', 'capitulo', 'prólogo', 'prologo', 'epílogo', 'epilogo', 'parte', // es, pt, it
-  'capitolo',                                                      // it
-  'kapitel', 'prolog', 'epilog', 'teil',                           // de
-  'hoofdstuk', 'proloog', 'epiloog', 'deel',                       // nl
-  'rozdział', 'rozdzial', 'część', 'czesc',                         // pl
-  // ro (prolog, epilog above). A bare "Capitol" only before a number:
-  // on its own it is an English word, and "Capitol Hill was quiet." is prose
-  'capitol(?=\\s+\\d)', 'capitolul', 'partea',
-  'глава', 'пролог', 'эпилог', 'часть',                            // ru
-  'κεφάλαιο', 'κεφαλαιο', 'πρόλογος', 'προλογος',
-  'επίλογος', 'επιλογος', 'μέρος', 'μερος',
-  'ραψωδία', 'ραψωδια',                                             // el
-  // hu: the number comes first ("3. fejezet", "II. rész")
-  'prológus', 'prologus', 'epilógus', 'epilogus',
-  '(?:\\d{1,3}|[ivxlc]{1,7})\\.\\s*(?:fejezet|rész|resz)'
-].join('|') + ')(?![\\p{L}\\d])', 'iu');
+const CHAPTER_WORDS = new RegExp(
+  "^(" +
+    [
+      "chapter",
+      "prologue",
+      "epilogue",
+      "part", // en
+      "chapitre",
+      "épilogue",
+      "partie", // fr
+      "capítulo",
+      "capitulo",
+      "prólogo",
+      "prologo",
+      "epílogo",
+      "epilogo",
+      "parte", // es, pt, it
+      "capitolo", // it
+      "kapitel",
+      "prolog",
+      "epilog",
+      "teil", // de
+      "hoofdstuk",
+      "proloog",
+      "epiloog",
+      "deel", // nl
+      "rozdział",
+      "rozdzial",
+      "część",
+      "czesc", // pl
+      // ro (prolog, epilog above). A bare "Capitol" only before a number:
+      // on its own it is an English word, and "Capitol Hill was quiet." is prose
+      "capitol(?=\\s+\\d)",
+      "capitolul",
+      "partea",
+      "глава",
+      "пролог",
+      "эпилог",
+      "часть", // ru
+      "κεφάλαιο",
+      "κεφαλαιο",
+      "πρόλογος",
+      "προλογος",
+      "επίλογος",
+      "επιλογος",
+      "μέρος",
+      "μερος",
+      "ραψωδία",
+      "ραψωδια", // el
+      // hu: the number comes first ("3. fejezet", "II. rész")
+      "prológus",
+      "prologus",
+      "epilógus",
+      "epilogus",
+      "(?:\\d{1,3}|[ivxlc]{1,7})\\.\\s*(?:fejezet|rész|resz)",
+    ].join("|") +
+    ")(?![\\p{L}\\d])",
+  "iu",
+);
 
 // A manuscript's own Prologue / Epilogue headings give those chapters their role
-const PROLOGUE_WORDS = /^(prologue|prólogo|prologo|prolog|proloog|prológus|prologus)(?![\p{L}\d])/iu;
-const EPILOGUE_WORDS = /^(epilogue|épilogue|epílogo|epilogo|epilog|epiloog|epilógus|epilogus)(?![\p{L}\d])/iu;
+const PROLOGUE_WORDS =
+  /^(prologue|prólogo|prologo|prolog|proloog|prológus|prologus)(?![\p{L}\d])/iu;
+const EPILOGUE_WORDS =
+  /^(epilogue|épilogue|epílogo|epilogo|epilog|epiloog|epilógus|epilogus)(?![\p{L}\d])/iu;
 
 // A text file in whatever it was saved as: UTF-8 (with or without its
 // mark), UTF-16 (Notepad's "Unicode"), or, when it isn't valid UTF-8, the
 // Windows code page Word's plain-text export uses
 function readTextFile(fp) {
   const buf = fs.readFileSync(fp);
-  const { TextDecoder } = require('util');
-  if (buf[0] === 0xFF && buf[1] === 0xFE) return new TextDecoder('utf-16le').decode(buf.subarray(2));
-  if (buf[0] === 0xFE && buf[1] === 0xFF) return new TextDecoder('utf-16be').decode(buf.subarray(2));
+  const { TextDecoder } = require("util");
+  if (buf[0] === 0xff && buf[1] === 0xfe)
+    return new TextDecoder("utf-16le").decode(buf.subarray(2));
+  if (buf[0] === 0xfe && buf[1] === 0xff)
+    return new TextDecoder("utf-16be").decode(buf.subarray(2));
   try {
-    return new TextDecoder('utf-8', { fatal: true }).decode(buf).replace(/^\uFEFF/, '');
+    return new TextDecoder("utf-8", { fatal: true })
+      .decode(buf)
+      .replace(/^\uFEFF/, "");
   } catch {
     // Latin-1 plus the code page's own 0x80–0x9F (curly quotes, dashes, €)
-    const cp = '\u20AC\uFFFD\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\uFFFD\u017D\uFFFD' +
-      '\uFFFD\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\uFFFD\u017E\u0178';
-    return buf.toString('latin1').replace(/[\u0080-\u009F]/g, (c) => cp[c.charCodeAt(0) - 0x80]);
+    const cp =
+      "\u20AC\uFFFD\u201A\u0192\u201E\u2026\u2020\u2021\u02C6\u2030\u0160\u2039\u0152\uFFFD\u017D\uFFFD" +
+      "\uFFFD\u2018\u2019\u201C\u201D\u2022\u2013\u2014\u02DC\u2122\u0161\u203A\u0153\uFFFD\u017E\u0178";
+    return buf
+      .toString("latin1")
+      .replace(/[\u0080-\u009F]/g, (c) => cp[c.charCodeAt(0) - 0x80]);
   }
 }
 
@@ -1733,24 +2243,41 @@ async function importFile(fp) {
   let paras = [];
   // a script (Fountain, or Final Draft's XML) is read as it stands; the
   // window sorts it into its elements (spFromFountain, spFromFdx in app.js)
-  if (ext === '.fountain' || ext === '.fdx') {
-    return { name, script: ext.slice(1), source: fs.readFileSync(fp, 'utf8').replace(/^\uFEFF/, '') };
+  if (ext === ".fountain" || ext === ".fdx") {
+    return {
+      name,
+      script: ext.slice(1),
+      source: fs.readFileSync(fp, "utf8").replace(/^\uFEFF/, ""),
+    };
   }
 
   if (ext === ".docx") {
     const JSZip = require("jszip");
     const zip = await JSZip.loadAsync(fs.readFileSync(fp));
-    const docFile = zip.file('word/document.xml');
-    if (!docFile) throw new Error('Not a valid .docx: ' + fp);
-    const xml = await docFile.async('string');
-    const stylesFile = zip.file('word/styles.xml');
-    const styles = docxStyleFormats(stylesFile ? await stylesFile.async('string') : '');
+    const docFile = zip.file("word/document.xml");
+    if (!docFile) throw new Error("Not a valid .docx: " + fp);
+    const xml = await docFile.async("string");
+    const stylesFile = zip.file("word/styles.xml");
+    const styles = docxStyleFormats(
+      stylesFile ? await stylesFile.async("string") : "",
+    );
     paras = [...xml.matchAll(/<w:p[ >][\s\S]*?<\/w:p>/g)]
       .map((m) => docxParagraphToMarkdown(m[0], styles))
       // a line break inside a Word paragraph (a poem, an address) becomes
       // a paragraph of its own: NEO's lines are paragraphs
-      .flatMap((p) => !p.text.includes('\n') ? [p]
-        : p.text.split('\n').map((text, i) => ({ ...p, text: text.trim(), pageBreak: p.pageBreak && i === 0, heading: p.heading && i === 0, title: p.title && i === 0 })));
+      .flatMap((p) =>
+        !p.text.includes("\n")
+          ? [p]
+          : p.text
+              .split("\n")
+              .map((text, i) => ({
+                ...p,
+                text: text.trim(),
+                pageBreak: p.pageBreak && i === 0,
+                heading: p.heading && i === 0,
+                title: p.title && i === 0,
+              })),
+      );
   } else {
     const raw = readTextFile(fp);
     // Paragraphs are split on blank lines, unless the file barely has any
@@ -1761,9 +2288,13 @@ async function importFile(fp) {
     const filled = lines.length - blanks;
     // (a file hard-wrapped at ~70 columns, Project Gutenberg style, has a
     // blank line between paragraphs: it keeps the blank-line rule)
-    const perLine = ext === '.txt' && filled > 3 && blanks <= Math.max(1, filled / 20);
+    const perLine =
+      ext === ".txt" && filled > 3 && blanks <= Math.max(1, filled / 20);
     paras = (perLine ? lines : raw.split(/(?:\r\n|\r|\n)\s*(?:\r\n|\r|\n)/))
-      .map((b) => ({ text: (perLine ? b : b.replace(/\s*(?:\r\n|\r|\n)\s*/g, ' ')).trim(), pageBreak: false }))
+      .map((b) => ({
+        text: (perLine ? b : b.replace(/\s*(?:\r\n|\r|\n)\s*/g, " ")).trim(),
+        pageBreak: false,
+      }))
       .filter((p) => p.text);
   }
 
@@ -1777,8 +2308,14 @@ async function importFile(fp) {
   // Bare numbers only count as chapter markers when there's a ladder of them —
   // a story that merely OPENS with "Seven." keeps its seven.
   // a heading set in bold ("**Chapter 1**") is still a heading
-  const bare = (t) => String(t || '').replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/\\([\\*_])/g, '$1').trim();
-  const numeralMode = paras.filter((p) => p.text && isNumeralish(bare(p.text))).length >= 2;
+  const bare = (t) =>
+    String(t || "")
+      .replace(/\*\*([^*]+)\*\*/g, "$1")
+      .replace(/\*([^*]+)\*/g, "$1")
+      .replace(/\\([\\*_])/g, "$1")
+      .trim();
+  const numeralMode =
+    paras.filter((p) => p.text && isNumeralish(bare(p.text))).length >= 2;
   // A markdown heading: one or more "#" then text — any "size" (depth) counts.
   const isMdHeading = (t) => /^#{1,6}\s+\S/.test(t);
   const mdTitleOf = (t) => t.replace(/^#{1,6}\s*/, "").trim();
@@ -1790,15 +2327,17 @@ async function importFile(fp) {
     /[.!?…][”’"'»)]*$/.test(t) && t.trim().split(/\s+/).length > 2;
   const isNumberedHeading = (t) =>
     (CHAPTER_WORDS.test(t) && t.length < 60 && !readsAsSentence(t)) ||
-    (numeralMode && isNumeralish(t))
-  );
+    (numeralMode && isNumeralish(t));
   const isHeading = (t) => t && (isMdHeading(t) || isNumberedHeading(bare(t)));
   // The chapter title that a heading contributes. Markdown hashes and any
   // emphasis markers are stripped, and pure numbering yields no title.
   const titleOf = (t) => {
     if (isMdHeading(t)) t = mdTitleOf(t);
-    t = bare(t).replace(/(^|[^\p{L}\p{N}_])_([^_]+)_(?![\p{L}\p{N}_])/gu, '$1$2');
-    return isNumberedHeading(t) ? '' : t;
+    t = bare(t).replace(
+      /(^|[^\p{L}\p{N}_])_([^_]+)_(?![\p{L}\p{N}_])/gu,
+      "$1$2",
+    );
+    return isNumberedHeading(t) ? "" : t;
   };
   const isBreak = (t) => /^\s*([*#•~⁂—–-]\s*){1,7}$/.test(t || "");
 
@@ -1974,9 +2513,14 @@ ipcMain.handle("import:files", async (_e, paths) => {
 ipcMain.handle("import:pick", async () => {
   const win = BrowserWindow.getFocusedWindow();
   const { canceled, filePaths } = await dialog.showOpenDialog(win, {
-    title: t('Bring your manuscripts home'),
-    properties: ['openFile', 'multiSelections'],
-    filters: [{ name: t('Manuscripts'), extensions: ['docx', 'txt', 'md', 'fountain', 'fdx'] }]
+    title: t("Bring your manuscripts home"),
+    properties: ["openFile", "multiSelections"],
+    filters: [
+      {
+        name: t("Manuscripts"),
+        extensions: ["docx", "txt", "md", "fountain", "fdx"],
+      },
+    ],
   });
   if (canceled || !filePaths.length) return [];
   const out = [];
@@ -2048,11 +2592,19 @@ async function dailyBackup() {
         return;
       }
       for (const name of names) {
-        if (rel === '' && skip.has(name)) continue;
+        if (rel === "" && skip.has(name)) continue;
         // only NEO's own things: a library kept in a busy folder (Dropbox,
         // Documents) doesn't zip everything else in there every day
-        if (rel === '' && !(name.startsWith('book-') || name.startsWith('library.json') || name === '_catalog.txt')) continue;
-        if (name === '.DS_Store' || /^\..+\.icloud$/.test(name)) continue; // Finder litter; iCloud's stand-in for a file not downloaded
+        if (
+          rel === "" &&
+          !(
+            name.startsWith("book-") ||
+            name.startsWith("library.json") ||
+            name === "_catalog.txt"
+          )
+        )
+          continue;
+        if (name === ".DS_Store" || /^\..+\.icloud$/.test(name)) continue; // Finder litter; iCloud's stand-in for a file not downloaded
         const full = path.join(dir, name);
         const relPath = rel ? rel + "/" + name : name;
         try {
@@ -2074,16 +2626,33 @@ async function dailyBackup() {
     }
     // written beside its real name and swapped in whole, so a backup cut
     // short never stands in for the day's backup
-    const data = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    const data = await zip.generateAsync({
+      type: "nodebuffer",
+      compression: "DEFLATE",
+    });
     await JSZip.loadAsync(data); // reads back whole, or it doesn't count
     writeFileDurable(target, data);
 
     // prune old backups
-    const backups = fs.readdirSync(backupsDir).filter((f) => /^neo-backup-.*\.zip$/.test(f)).sort();
-    while (backups.length > 14) fs.unlinkSync(path.join(backupsDir, backups.shift()));
+    const backups = fs
+      .readdirSync(backupsDir)
+      .filter((f) => /^neo-backup-.*\.zip$/.test(f))
+      .sort();
+    while (backups.length > 14)
+      fs.unlinkSync(path.join(backupsDir, backups.shift()));
   } catch (err) {
-    logError('backup', err);
-    try { fs.unlinkSync(path.join(LIBRARY_DIR, 'Backups', `neo-backup-${new Date().toISOString().slice(0, 10)}.zip.tmp`)); } catch { /* none */ }
+    logError("backup", err);
+    try {
+      fs.unlinkSync(
+        path.join(
+          LIBRARY_DIR,
+          "Backups",
+          `neo-backup-${new Date().toISOString().slice(0, 10)}.zip.tmp`,
+        ),
+      );
+    } catch {
+      /* none */
+    }
   } finally {
     backupRunning = false;
   }
@@ -2094,13 +2663,21 @@ let backupRunning = false;
 // Window
 // The window's own color, seen for a moment before the page draws and at the
 // edges while it resizes: the room's color, dark or (View → Page → Light) light
-function roomColor(theme) { return theme === 'light' ? '#efede8' : '#191919'; }
+function roomColor(theme) {
+  return theme === "light" ? "#efede8" : "#191919";
+}
 // (this computer's own page, kept in settings.json as the window reports
 // it; the library's, the last device's, until it has one)
 function libraryPageTheme() {
   const own = readSettings().pageTheme;
   if (own) return own;
-  try { return JSON.parse(fs.readFileSync(LIBRARY_FILE, 'utf8')).pageTheme || 'night'; } catch { return 'night'; }
+  try {
+    return (
+      JSON.parse(fs.readFileSync(LIBRARY_FILE, "utf8")).pageTheme || "night"
+    );
+  } catch {
+    return "night";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2169,14 +2746,21 @@ function createWindow() {
   const remember = () => {
     clearTimeout(rememberTimer);
     if (win.isDestroyed() || win.isFullScreen() || win.isMinimized()) return;
-    try { writeSettings({ ...readSettings(), window: win.getNormalBounds() }); } catch (err) { logError('settings', err); }
+    try {
+      writeSettings({ ...readSettings(), window: win.getNormalBounds() });
+    } catch (err) {
+      logError("settings", err);
+    }
   };
   // a drag sends dozens of these a second: the place is written once it settles
   let rememberTimer = null;
-  const rememberSoon = () => { clearTimeout(rememberTimer); rememberTimer = setTimeout(remember, 500); };
-  win.on('resize', rememberSoon);
-  win.on('move', rememberSoon);
-  win.on('close', remember);
+  const rememberSoon = () => {
+    clearTimeout(rememberTimer);
+    rememberTimer = setTimeout(remember, 500);
+  };
+  win.on("resize", rememberSoon);
+  win.on("move", rememberSoon);
+  win.on("close", remember);
 
   // Right-click on text: Cut, Copy, Paste, Select All — and nothing else.
   // Handing macOS the frame (where the selection sits) is what invites it to
@@ -2192,12 +2776,23 @@ function createWindow() {
     const line = scriptContext;
     scriptContext = null;
     if (params.isEditable && line) {
-      items.push({ label: line.pageBreak ? t('Remove Page Break') : t('Page Break Here'), click: () => sendToWindow({ type: 'scriptPageBreak' }) }, { type: 'separator' });
+      items.push(
+        {
+          label: line.pageBreak ? t("Remove Page Break") : t("Page Break Here"),
+          click: () => sendToWindow({ type: "scriptPageBreak" }),
+        },
+        { type: "separator" },
+      );
     }
-    if (params.isEditable) items.push({ role: 'cut', label: t('Cut'), enabled: !!can.canCut });
-    items.push({ role: 'copy', label: t('Copy'), enabled: !!can.canCopy });
-    if (params.isEditable) items.push({ role: 'paste', label: t('Paste'), enabled: !!can.canPaste });
-    items.push({ type: 'separator' }, { role: 'selectAll', label: t('Select All') });
+    if (params.isEditable)
+      items.push({ role: "cut", label: t("Cut"), enabled: !!can.canCut });
+    items.push({ role: "copy", label: t("Copy"), enabled: !!can.canCopy });
+    if (params.isEditable)
+      items.push({ role: "paste", label: t("Paste"), enabled: !!can.canPaste });
+    items.push(
+      { type: "separator" },
+      { role: "selectAll", label: t("Select All") },
+    );
     Menu.buildFromTemplate(items).popup({ window: win });
   });
 
@@ -2227,7 +2822,7 @@ const SPELL_LANGUAGES = {
   pl: { label: "Polski", pkg: "dictionary-pl" },
   "pt-BR": { label: "Português (Brasil)", pkg: "dictionary-pt" },
   ro: { label: "Română", pkg: "dictionary-ro" },
-  'hu': { label: 'Magyar', pkg: 'dictionary-hu' },
+  hu: { label: "Magyar", pkg: "dictionary-hu" },
   ru: { label: "Русский", pkg: "dictionary-ru" },
   el: { label: "Ελληνικά", pkg: "dictionary-el" },
   tr: { label: "Türkçe", pkg: "dictionary-tr" },
@@ -2245,13 +2840,18 @@ function spellRequest(msg) {
     // the helper went away (it crashed, the system reclaimed it): start a
     // new one and load the dictionary again, rather than calling every
     // word right for the rest of the session
-    if (!spellChild && msg.type !== 'load' && spellLoaded) {
+    if (!spellChild && msg.type !== "load" && spellLoaded) {
       const lang = spellLoaded;
       spellLoaded = null;
-      loadSpellDictionary(lang).then(() => spellRequest(msg)).then(resolve, () => resolve({ ok: false, error: 'no spell process' }));
+      loadSpellDictionary(lang)
+        .then(() => spellRequest(msg))
+        .then(resolve, () => resolve({ ok: false, error: "no spell process" }));
       return;
     }
-    if (!spellChild) { resolve({ ok: false, error: 'no spell process' }); return; }
+    if (!spellChild) {
+      resolve({ ok: false, error: "no spell process" });
+      return;
+    }
     const id = ++spellSeq;
     spellWaiting.set(id, resolve);
     spellChild.postMessage({ ...msg, id });
@@ -2392,20 +2992,44 @@ let flushState = false;
 // A script open in the window: the Format menu offers its elements (the
 // keys are the editor's own, ⌘1–⌘7), and Export its two ways out
 let scriptState = { on: false, element: null, underline: false, contd: true };
-const SCRIPT_ELEMENTS = ['heading', 'action', 'character', 'paren', 'dialogue', 'transition', 'shot'];
+const SCRIPT_ELEMENTS = [
+  "heading",
+  "action",
+  "character",
+  "paren",
+  "dialogue",
+  "transition",
+  "shot",
+];
 // the script line a right-click is on: { pageBreak } (whether it starts a
 // page already), or null when the click wasn't on one
 let scriptContext = null;
-ipcMain.on('script:context', (e, st) => {
-  scriptContext = st && typeof st === 'object' ? { pageBreak: !!st.pageBreak } : null;
+ipcMain.on("script:context", (e, st) => {
+  scriptContext =
+    st && typeof st === "object" ? { pageBreak: !!st.pageBreak } : null;
   e.returnValue = true;
 });
-ipcMain.on('script:state', (_e, st) => {
+ipcMain.on("script:state", (_e, st) => {
   st = st || {};
-  const next = { on: !!st.on, element: SCRIPT_ELEMENTS.includes(st.element) ? st.element : null, underline: !!st.underline, contd: st.contd !== false };
-  if (next.on === scriptState.on && next.element === scriptState.element && next.underline === scriptState.underline && next.contd === scriptState.contd) return;
+  const next = {
+    on: !!st.on,
+    element: SCRIPT_ELEMENTS.includes(st.element) ? st.element : null,
+    underline: !!st.underline,
+    contd: st.contd !== false,
+  };
+  if (
+    next.on === scriptState.on &&
+    next.element === scriptState.element &&
+    next.underline === scriptState.underline &&
+    next.contd === scriptState.contd
+  )
+    return;
   scriptState = next;
-  try { buildMenu(); } catch (err) { logError('menu', err); }
+  try {
+    buildMenu();
+  } catch (err) {
+    logError("menu", err);
+  }
 });
 let typewriterState = false;
 ipcMain.on("poetry:state", (_e, on) => {
@@ -2464,22 +3088,36 @@ ipcMain.on("uizoom:state", (_e, z) => {
 });
 // View and Format menu ticks: the focus level, the page, Brighter Interface, and the writing
 // format the page is using (body font, drop cap style, paragraph alignment).
-let viewState = { focus: 'off', pageTheme: 'night', uiBright: false, bodyFont: '', dropCap: 'literary', align: null };
+let viewState = {
+  focus: "off",
+  pageTheme: "night",
+  uiBright: false,
+  bodyFont: "",
+  dropCap: "literary",
+  align: null,
+};
 let keptTheme = null;
-ipcMain.on('view:state', (e, st) => {
+ipcMain.on("view:state", (e, st) => {
   st = st || {};
   const next = {
-    focus: st.focus || 'off',
-    pageTheme: st.pageTheme || 'night',
+    focus: st.focus || "off",
+    pageTheme: st.pageTheme || "night",
     uiBright: !!st.uiBright,
-    bodyFont: typeof st.bodyFont === 'string' ? st.bodyFont : '',
-    dropCap: typeof st.dropCap === 'string' ? st.dropCap : 'literary',
-    align: ['left', 'center', 'right', 'justify'].includes(st.align) ? st.align : null
+    bodyFont: typeof st.bodyFont === "string" ? st.bodyFont : "",
+    dropCap: typeof st.dropCap === "string" ? st.dropCap : "literary",
+    align: ["left", "center", "right", "justify"].includes(st.align)
+      ? st.align
+      : null,
   };
   // this computer's page, for the window's color at the next start
   if (next.pageTheme !== keptTheme) {
     keptTheme = next.pageTheme;
-    try { if (readSettings().pageTheme !== keptTheme) writeSettings({ ...readSettings(), pageTheme: keptTheme }); } catch (err) { logError('settings', err); }
+    try {
+      if (readSettings().pageTheme !== keptTheme)
+        writeSettings({ ...readSettings(), pageTheme: keptTheme });
+    } catch (err) {
+      logError("settings", err);
+    }
   }
   if (JSON.stringify(next) === JSON.stringify(viewState)) return;
   if (next.pageTheme !== viewState.pageTheme) {
@@ -2566,33 +3204,68 @@ function buildMenu() {
       label: t("File"),
       submenu: [
         {
-          label: t('Export'),
-          submenu: scriptState.on ? [
-            { label: 'PDF (.pdf)', click: () => sendToWindow({ type: 'export', format: 'pdf' }) },
-            { label: 'Fountain (.fountain)', click: () => sendToWindow({ type: 'export', format: 'fountain' }) },
-            { label: 'Final Draft (.fdx)', click: () => sendToWindow({ type: 'export', format: 'fdx' }) }
-          ] : [
-            { label: t('Plain Text (.txt)'), click: () => sendToWindow({ type: 'export', format: 'txt' }) },
-            { label: 'Markdown (.md)', click: () => sendToWindow({ type: 'export', format: 'md' }) },
-            { label: t('Web Page (.html)'), click: () => sendToWindow({ type: 'export', format: 'html' }) },
-            { label: 'PDF (.pdf)', click: () => sendToWindow({ type: 'export', format: 'pdf' }) },
-            { label: 'Word (.docx)', click: () => sendToWindow({ type: 'export', format: 'docx' }) },
-            { label: 'EPUB (.epub)', click: () => sendToWindow({ type: 'export', format: 'epub' }) },
-            { type: 'separator' },
-            { label: t('Paperback for KDP…'), click: () => sendToWindow({ type: 'export', format: 'paperback' }) },
-            { type: 'separator' },
-            {
-              id: "export-custom-chapter-titles",
-              label: t("Chapter Titles Only"),
-              type: "checkbox",
-              checked: !!readJSON(LIBRARY_FILE, {}).exportCustomChapterTitles,
-              click: (item) =>
-                sendToWindow({
-                  type: "exportCustomChapterTitles",
-                  checked: item.checked,
-                }),
-            },
-          ],
+          label: t("Export"),
+          submenu: scriptState.on
+            ? [
+                {
+                  label: "PDF (.pdf)",
+                  click: () => sendToWindow({ type: "export", format: "pdf" }),
+                },
+                {
+                  label: "Fountain (.fountain)",
+                  click: () =>
+                    sendToWindow({ type: "export", format: "fountain" }),
+                },
+                {
+                  label: "Final Draft (.fdx)",
+                  click: () => sendToWindow({ type: "export", format: "fdx" }),
+                },
+              ]
+            : [
+                {
+                  label: t("Plain Text (.txt)"),
+                  click: () => sendToWindow({ type: "export", format: "txt" }),
+                },
+                {
+                  label: "Markdown (.md)",
+                  click: () => sendToWindow({ type: "export", format: "md" }),
+                },
+                {
+                  label: t("Web Page (.html)"),
+                  click: () => sendToWindow({ type: "export", format: "html" }),
+                },
+                {
+                  label: "PDF (.pdf)",
+                  click: () => sendToWindow({ type: "export", format: "pdf" }),
+                },
+                {
+                  label: "Word (.docx)",
+                  click: () => sendToWindow({ type: "export", format: "docx" }),
+                },
+                {
+                  label: "EPUB (.epub)",
+                  click: () => sendToWindow({ type: "export", format: "epub" }),
+                },
+                { type: "separator" },
+                {
+                  label: t("Paperback for KDP…"),
+                  click: () =>
+                    sendToWindow({ type: "export", format: "paperback" }),
+                },
+                { type: "separator" },
+                {
+                  id: "export-custom-chapter-titles",
+                  label: t("Chapter Titles Only"),
+                  type: "checkbox",
+                  checked: !!readJSON(LIBRARY_FILE, {})
+                    .exportCustomChapterTitles,
+                  click: (item) =>
+                    sendToWindow({
+                      type: "exportCustomChapterTitles",
+                      checked: item.checked,
+                    }),
+                },
+              ],
         },
         { type: "separator" },
         {
@@ -2679,14 +3352,14 @@ function buildMenu() {
           click: () => sendToWindow({ type: "find" }),
         },
         {
-          label: t('Spellcheck Pass'),
-          accelerator: 'CmdOrCtrl+;',
+          label: t("Spellcheck Pass"),
+          accelerator: "CmdOrCtrl+;",
           // shown, not registered: the window answers the ; character itself
           // (isSpellcheckShortcut). Windows matches an accelerator by key
           // position, so on some layouts this one and ⌘/ landed on the same
           // key and one press did both (#282).
           registerAccelerator: false,
-          click: () => sendToWindow({ type: 'spellcheck' })
+          click: () => sendToWindow({ type: "spellcheck" }),
         },
         {
           label: t("Spellcheck Language"),
@@ -2704,24 +3377,30 @@ function buildMenu() {
       submenu: [
         {
           visible: !scriptState.on, // a script is set in Courier Prime
-          label: t('Body Font'),
+          label: t("Body Font"),
           submenu: [
             // A font the writer picked from their own computer is not in the list, and a radio
             // group with nothing checked shows the first built-in as chosen. Show the font in use
             // (#295).
             ...(viewState.bodyFont && !bodyFonts.includes(viewState.bodyFont)
-              ? [{
-                  label: viewState.bodyFont,
-                  type: 'radio',
-                  checked: true,
-                  click: () => sendToWindow({ type: 'bodyFont', value: viewState.bodyFont })
-                }]
+              ? [
+                  {
+                    label: viewState.bodyFont,
+                    type: "radio",
+                    checked: true,
+                    click: () =>
+                      sendToWindow({
+                        type: "bodyFont",
+                        value: viewState.bodyFont,
+                      }),
+                  },
+                ]
               : []),
             ...bodyFonts.map((f) => ({
               label: f,
-              type: 'radio',
+              type: "radio",
               checked: viewState.bodyFont === f,
-              click: () => sendToWindow({ type: 'bodyFont', value: f })
+              click: () => sendToWindow({ type: "bodyFont", value: f }),
             })),
             { type: "separator" },
             {
@@ -2732,24 +3411,68 @@ function buildMenu() {
         },
         {
           visible: !scriptState.on,
-          label: t('Drop Cap Style'),
+          label: t("Drop Cap Style"),
           submenu: [
-            { label: t('Literary'), type: 'radio', checked: viewState.dropCap === 'literary', click: () => sendToWindow({ type: 'dropCap', value: 'literary' }) },
-            { label: t('Fantasy'), type: 'radio', checked: viewState.dropCap === 'fantasy', click: () => sendToWindow({ type: 'dropCap', value: 'fantasy' }) },
-            { label: t('Sci-Fi'), type: 'radio', checked: viewState.dropCap === 'scifi', click: () => sendToWindow({ type: 'dropCap', value: 'scifi' }) },
-            { type: 'separator' },
-            { label: t('Off'), type: 'radio', checked: viewState.dropCap === 'none', click: () => sendToWindow({ type: 'dropCap', value: 'none' }) }
-          ]
+            {
+              label: t("Literary"),
+              type: "radio",
+              checked: viewState.dropCap === "literary",
+              click: () => sendToWindow({ type: "dropCap", value: "literary" }),
+            },
+            {
+              label: t("Fantasy"),
+              type: "radio",
+              checked: viewState.dropCap === "fantasy",
+              click: () => sendToWindow({ type: "dropCap", value: "fantasy" }),
+            },
+            {
+              label: t("Sci-Fi"),
+              type: "radio",
+              checked: viewState.dropCap === "scifi",
+              click: () => sendToWindow({ type: "dropCap", value: "scifi" }),
+            },
+            { type: "separator" },
+            {
+              label: t("Off"),
+              type: "radio",
+              checked: viewState.dropCap === "none",
+              click: () => sendToWindow({ type: "dropCap", value: "none" }),
+            },
+          ],
         },
         {
           visible: !scriptState.on, // a script's elements are placed where they print
-          label: t('Align Paragraph'),
+          label: t("Align Paragraph"),
           submenu: [
-            { label: t('Left'), accelerator: 'CmdOrCtrl+Shift+L', type: 'radio', checked: viewState.align === 'left', click: () => sendToWindow({ type: 'align', value: 'left' }) },
-            { label: t('Center'), accelerator: 'CmdOrCtrl+Shift+C', type: 'radio', checked: viewState.align === 'center', click: () => sendToWindow({ type: 'align', value: 'center' }) },
-            { label: t('Right'), accelerator: 'CmdOrCtrl+Shift+R', type: 'radio', checked: viewState.align === 'right', click: () => sendToWindow({ type: 'align', value: 'right' }) },
-            { label: t('Justify'), accelerator: 'CmdOrCtrl+Shift+J', type: 'radio', checked: viewState.align === 'justify', click: () => sendToWindow({ type: 'align', value: 'justify' }) }
-          ]
+            {
+              label: t("Left"),
+              accelerator: "CmdOrCtrl+Shift+L",
+              type: "radio",
+              checked: viewState.align === "left",
+              click: () => sendToWindow({ type: "align", value: "left" }),
+            },
+            {
+              label: t("Center"),
+              accelerator: "CmdOrCtrl+Shift+C",
+              type: "radio",
+              checked: viewState.align === "center",
+              click: () => sendToWindow({ type: "align", value: "center" }),
+            },
+            {
+              label: t("Right"),
+              accelerator: "CmdOrCtrl+Shift+R",
+              type: "radio",
+              checked: viewState.align === "right",
+              click: () => sendToWindow({ type: "align", value: "right" }),
+            },
+            {
+              label: t("Justify"),
+              accelerator: "CmdOrCtrl+Shift+J",
+              type: "radio",
+              checked: viewState.align === "justify",
+              click: () => sendToWindow({ type: "align", value: "justify" }),
+            },
+          ],
         },
         { type: "separator" },
         {
@@ -2780,32 +3503,57 @@ function buildMenu() {
         // (they split or continue a paragraph, which a menu item can't), so
         // they're named here without an accelerator
         // a script's elements stand where a book's paragraph kinds do
-        ...(scriptState.on ? [
-          [t('Scene Heading'), 'heading'], [t('Action'), 'action'], [t('Character'), 'character'], [t('Parenthetical'), 'paren'],
-          [t('Dialogue'), 'dialogue'], [t('Transition'), 'transition'], [t('Shot'), 'shot']
-        ].map(([label, value], i) => ({
-          label: label + '\t' + (isMac ? '⌘' : 'Ctrl+') + (i + 1),
-          type: 'radio',
-          checked: scriptState.element === value,
-          click: () => sendToWindow({ type: 'scriptElement', value })
-        })) : []),
+        ...(scriptState.on
+          ? [
+              [t("Scene Heading"), "heading"],
+              [t("Action"), "action"],
+              [t("Character"), "character"],
+              [t("Parenthetical"), "paren"],
+              [t("Dialogue"), "dialogue"],
+              [t("Transition"), "transition"],
+              [t("Shot"), "shot"],
+            ].map(([label, value], i) => ({
+              label: label + "\t" + (isMac ? "⌘" : "Ctrl+") + (i + 1),
+              type: "radio",
+              checked: scriptState.element === value,
+              click: () => sendToWindow({ type: "scriptElement", value }),
+            }))
+          : []),
         // the script's own style, kept with that script
-        ...(scriptState.on ? [
-          { type: 'separator' },
-          { label: t('Underline Scene Headings'), type: 'checkbox', checked: scriptState.underline, click: () => sendToWindow({ type: 'scriptStyle', value: 'underline' }) },
-          { label: t('(CONT\'D) for a Returning Speaker'), type: 'checkbox', checked: scriptState.contd, click: () => sendToWindow({ type: 'scriptStyle', value: 'contd' }) }
-        ] : []),
+        ...(scriptState.on
+          ? [
+              { type: "separator" },
+              {
+                label: t("Underline Scene Headings"),
+                type: "checkbox",
+                checked: scriptState.underline,
+                click: () =>
+                  sendToWindow({ type: "scriptStyle", value: "underline" }),
+              },
+              {
+                label: t("(CONT'D) for a Returning Speaker"),
+                type: "checkbox",
+                checked: scriptState.contd,
+                click: () =>
+                  sendToWindow({ type: "scriptStyle", value: "contd" }),
+              },
+            ]
+          : []),
         {
           visible: !scriptState.on,
-          label: t('Flush Paragraph') + '\t' + (isMac ? '⇧Enter' : 'Shift+Enter'),
-          type: 'checkbox',
+          label:
+            t("Flush Paragraph") + "\t" + (isMac ? "⇧Enter" : "Shift+Enter"),
+          type: "checkbox",
           checked: flushState,
           click: () => sendToWindow({ type: "flush" }),
         },
         {
           visible: !scriptState.on,
-          label: t('Poetry Paragraph') + '\t' + (isMac ? '⇧⌘Enter' : 'Ctrl+Shift+Enter'),
-          type: 'checkbox',
+          label:
+            t("Poetry Paragraph") +
+            "\t" +
+            (isMac ? "⇧⌘Enter" : "Ctrl+Shift+Enter"),
+          type: "checkbox",
           checked: poetryState,
           click: () => sendToWindow({ type: "poetry" }),
         },
@@ -2825,10 +3573,10 @@ function buildMenu() {
       label: t("View"),
       submenu: [
         {
-          label: t('Keyboard Shortcuts…'),
-          accelerator: 'CmdOrCtrl+/',
+          label: t("Keyboard Shortcuts…"),
+          accelerator: "CmdOrCtrl+/",
           registerAccelerator: false, // the window answers / and ? itself (isHelpShortcut)
-          click: () => sendToWindow({ type: 'help' })
+          click: () => sendToWindow({ type: "help" }),
         },
         { type: "separator" },
         {
@@ -3425,7 +4173,7 @@ app.whenReady().then(() => {
       // …unless the writer chose their own folder (File → Library Folder…)
       const chosen = readSettings().libraryDir;
       if (chosen) LIBRARY_DIR = awaitChosenLibrary(chosen);
-      LIBRARY_FILE = path.join(LIBRARY_DIR, 'library.json');
+      LIBRARY_FILE = path.join(LIBRARY_DIR, "library.json");
     } catch (err) {
       logError("paths", err);
     }
@@ -3487,14 +4235,39 @@ app.whenReady().then(() => {
       logError("library", err);
     }
     createWindow();
-    try { announceLibraryFallback(); } catch (err) { logError('library notice', err); }
-    try { initSpell(); } catch (err) { logError('spell', err); }
-    try { buildMenu(); } catch (err) { logError('menu', err); }
-    try { dailyBackup(); } catch (err) { logError('backup', err); }
+    try {
+      announceLibraryFallback();
+    } catch (err) {
+      logError("library notice", err);
+    }
+    try {
+      initSpell();
+    } catch (err) {
+      logError("spell", err);
+    }
+    try {
+      buildMenu();
+    } catch (err) {
+      logError("menu", err);
+    }
+    try {
+      dailyBackup();
+    } catch (err) {
+      logError("backup", err);
+    }
     // NEO left open for days still makes each day's backup (and retries one
     // that failed); an existing day's zip makes this a no-op
-    setInterval(() => { dailyBackup().catch(() => {}); }, 60 * 60 * 1000).unref?.();
-    try { checkForUpdates(); } catch (err) { logError('updater', err); }
+    setInterval(
+      () => {
+        dailyBackup().catch(() => {});
+      },
+      60 * 60 * 1000,
+    ).unref?.();
+    try {
+      checkForUpdates();
+    } catch (err) {
+      logError("updater", err);
+    }
   } catch (err) {
     // catastrophic: tell the human instead of dying in silence
     logError("startup", err);
